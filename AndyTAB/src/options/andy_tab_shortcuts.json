@@ -1,0 +1,198 @@
+[
+  {
+    "customColor": null,
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/74/c2/f5/74c2f550-18c1-4594-9f2a-1a7478416178/AppIcon-0-0-1x_U007epad-0-1-0-85-220.png/512x512bb.jpg",
+    "iconType": "custom",
+    "id": "1764763955551",
+    "name": "哔哩哔哩",
+    "updatedAt": "2025-12-31T06:52:14.710Z",
+    "url": "https://www.bilibili.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://cdn.worldvectorlogo.com/logos/jing-dong.svg",
+    "iconType": "custom",
+    "id": "1764835559460",
+    "name": "京东",
+    "updatedAt": "2025-12-31T06:52:32.208Z",
+    "url": "https://www.jd.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://favicon.im/www.taobao.com",
+    "iconType": "custom",
+    "id": "1764835813687",
+    "name": "淘宝",
+    "url": "https://www.taobao.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/95/e2/af/95e2afc9-3da9-9f07-9744-e1180f92f913/AppIcon-0-0-1x_U007epad-0-1-0-85-220.png/512x512bb.jpg",
+    "iconType": "custom",
+    "id": "1764835870088",
+    "name": "什么值得买",
+    "updatedAt": "2025-12-31T06:52:50.203Z",
+    "url": "https://www.smzdm.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/5b/20/51/5b205198-d3ca-3480-1f34-2fa957784bce/AppIcon-0-0-1x_U007epad-0-1-0-85-220.png/512x512bb.jpg",
+    "iconType": "custom",
+    "id": "1764763902451",
+    "name": "IT之家",
+    "updatedAt": "2025-12-31T06:53:02.782Z",
+    "url": "https://www.ithome.com/blog/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://favicon.im/www.zhibo8.com",
+    "iconType": "custom",
+    "id": "1764836722596",
+    "name": "直播吧",
+    "url": "https://www.zhibo8.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://www.gying.org/favicon.png",
+    "iconType": "custom",
+    "id": "1764836783536",
+    "name": "观影 GING",
+    "url": "https://www.gying.org/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://www.423down.com/wp-content/themes/D7/img/favicon.ico",
+    "iconType": "custom",
+    "id": "1764839676723",
+    "name": "423Down",
+    "url": "https://www.423down.com"
+  },
+  {
+    "customColor": null,
+    "icon": "https://favicon.im/www.ghxi.com",
+    "iconType": "custom",
+    "id": "1764839926477",
+    "name": "果核剥壳",
+    "url": "https://www.ghxi.com"
+  },
+  {
+    "customColor": null,
+    "icon": "https://www.fenxm.com/zb_users/theme/suiranx_air/image/favicon.ico",
+    "iconType": "custom",
+    "id": "1764840022092",
+    "name": "分享迷",
+    "url": "https://www.fenxm.com"
+  },
+  {
+    "customColor": null,
+    "icon": "https://apphot.cc/wp-content/uploads/2020/10/cropped-apphot-1-32x32.png",
+    "iconType": "custom",
+    "id": "1764840057794",
+    "name": "App热",
+    "url": "https://apphot.cc/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://ig.freer.blog/2023/10/25/d67adcffb89dd.jpg",
+    "iconType": "custom",
+    "id": "1765267013177",
+    "name": "Switch520",
+    "url": "https://www.gamer520.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://a.amap.com/pc/static/favicon.ico",
+    "iconType": "custom",
+    "id": "1765266473299",
+    "name": "高德地图",
+    "url": "https://ditu.amap.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://favicon.im/tv.cctv.com",
+    "iconType": "custom",
+    "id": "1765266790307",
+    "name": "CCTV高清直播",
+    "url": "http://tv.cctv.com/live/cctv1/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://p-pc-weboff.byteimg.com/tos-cn-i-9r5gewecjs/favicon.png",
+    "iconType": "custom",
+    "id": "1765266859175",
+    "name": "抖音直播",
+    "url": "https://live.douyin.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://www.douyu.com/favicon.ico",
+    "iconType": "custom",
+    "id": "1765266894043",
+    "name": "斗鱼",
+    "url": "https://www.douyu.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://img.1990i.com/f.png",
+    "iconType": "custom",
+    "id": "1765266939901",
+    "name": "小霸王",
+    "url": "https://www.yikm.net/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://imgs.crazygames.com/favicons/touch-icon.png?metadata=none&amp;quality=60&amp;width=16&amp;height=16&amp;fit=crop&amp;format=png",
+    "iconType": "custom",
+    "id": "1765266964187",
+    "name": "CrazyGames | Play Now!",
+    "url": "https://www.crazygames.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple116/v4/6f/5a/ff/6f5affcf-c512-1717-a552-1d91e69bfd8e/AppIcon-0-0-1x_U007emarketing-0-5-85-220.png/512x512bb.jpg",
+    "iconType": "custom",
+    "id": "1764910903732",
+    "name": "显示查询自己的IP地址",
+    "url": "https://ip111.cn"
+  },
+  {
+    "customColor": null,
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple122/v4/58/8f/5a/588f5afc-2899-4139-dfdc-d988ee31e68e/AppIcon-0-0-1x_U007emarketing-0-0-0-4-0-0-sRGB-0-0-0-GLES2_U002c0-512MB-85-220-0-0.png/512x512bb.jpg",
+    "iconType": "custom",
+    "id": "1764840140384",
+    "name": "IPv6 测试",
+    "url": "https://testipv6.cn/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/chat/favicon.png",
+    "iconType": "custom",
+    "id": "1764840108687",
+    "name": "豆包",
+    "url": "https://www.doubao.com/chat/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://chat.deepseek.com/favicon.svg",
+    "iconType": "custom",
+    "id": "1765265950551",
+    "name": "DeepSeek",
+    "url": "https://chat.deepseek.com/"
+  },
+  {
+    "customColor": null,
+    "icon": "https://assets.alicdn.com/g/qwenweb/qwen-chat-fe/0.1.13/favicon.png",
+    "iconType": "custom",
+    "id": "1765265975787",
+    "name": "Qwen Chat",
+    "url": "https://chat.qwen.ai/"
+  },
+  {
+    "customColor": "#6366f1",
+    "icon": "",
+    "iconType": "auto",
+    "id": "1765271102352",
+    "name": "AI生成项目",
+    "url": "https://adyhwang.github.io/aigen/"
+  }
+]

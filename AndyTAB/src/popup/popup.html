@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AndyTAB - 添加快捷方式</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="popup-container">
+        <div class="popup-header">
+            <h2>添加常用网站</h2>
+            <button id="close-popup" class="close-btn">&times;</button>
+        </div>
+        
+        <div class="popup-content">
+            <form id="shortcut-form">
+                <div class="form-group">
+                    <label for="shortcut-url">网址 *</label>
+                    <div class="input-with-button">
+                        <input type="text" id="shortcut-url" placeholder="https://example.com">
+                        <button type="button" id="fetch-info-btn" class="btn btn-secondary">
+                            <span class="btn-text">获取信息</span>
+                            <span class="btn-loading" style="display: none;">⏳</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="shortcut-name">名称 *</label>
+                    <input type="text" id="shortcut-name" required placeholder="输入网站名称">
+                </div>
+                
+                <div class="form-group">
+                    <label for="shortcut-icon-type">图标显示类型</label>
+                    <select id="shortcut-icon-type">
+                        <option value="auto">纯色图标</option>
+                        <option value="custom">自定义图标</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="solid-color-group">
+                    <label for="shortcut-custom-color">纯色图标颜色</label>
+                    <div class="color-input-wrapper">
+                        <div class="color-preview" id="color-preview" style="background-color: #6366f1;"></div>
+                        <input type="color" id="shortcut-custom-color" value="#6366f1" style="opacity: 0; position: absolute; width: 100%; height: 100%; cursor: pointer;">
+                        <span class="color-value" id="color-value">#6366f1</span>
+                    </div>
+                    <div class="color-presets" id="color-presets">
+                        <div class="color-preset" style="background-color: #6366f1;" data-color="#6366f1"></div>
+                        <div class="color-preset" style="background-color: #8b5cf6;" data-color="#8b5cf6"></div>
+                        <div class="color-preset" style="background-color: #ec4899;" data-color="#ec4899"></div>
+                        <div class="color-preset" style="background-color: #f59e0b;" data-color="#f59e0b"></div>
+                        <div class="color-preset" style="background-color: #10b981;" data-color="#10b981"></div>
+                        <div class="color-preset" style="background-color: #3b82f6;" data-color="#3b82f6"></div>
+                        <div class="color-preset" style="background-color: #ef4444;" data-color="#ef4444"></div>
+                        <div class="color-preset" style="background-color: #14b8a6;" data-color="#14b8a6"></div>
+                        <div class="color-preset" style="background-color: #f97316;" data-color="#f97316"></div>
+                        <div class="color-preset" style="background-color: #84cc16;" data-color="#84cc16"></div>
+                    </div>
+                </div>
+                
+                <div class="form-group" id="custom-icon-group" style="display: none;">
+                    <label for="shortcut-icon">自定义图标</label>
+                    <div class="input-with-button">
+                        <input type="text" id="shortcut-icon" placeholder="输入Base64字符串或图标URL">
+                        <button type="button" id="upload-icon-btn" class="btn btn-secondary">
+                            从本地上传图标
+                        </button>
+                        <input type="file" id="icon-file-input" accept="image/*" style="display: none;">
+                    </div>
+                    <div id="icon-select" class="icon-select">
+                        <h4>可选图标</h4>
+                        <div class="icon-grid"></div>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">添加</button>
+                    <button type="button" class="btn btn-secondary" id="cancel-btn">取消</button>
+                </div>
+                
+                <div id="shortcut-status" class="status-message"></div>
+            </form>
+        </div>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>

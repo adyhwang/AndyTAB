@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AndyTAB - 新标签页</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- 时间日期显示 -->
+    <div class="time-date">
+        <div class="time" id="time" style="display: none;"></div>
+        <div class="date" id="date" style="display: none;"></div>
+    </div>
+        <!-- 搜索框 -->
+        <div class="search-container">
+            <div class="search-bar">
+                <div class="search-engine-selector">
+                    <button id="search-engine-select" class="search-engine-btn">
+                        <span id="current-engine-name">Google</span>
+                        <span class="engine-arrow">▼</span>
+                    </button>
+                    <div class="search-engine-dropdown" id="engine-dropdown">
+                        <div class="engine-item" data-engine="google">Google</div>
+                        <div class="engine-item" data-engine="baidu">百度</div>
+                        <div class="engine-item" data-engine="bing">Bing</div>
+                        <div class="engine-item" data-engine="duckduckgo">DuckDuckGo</div>
+                    </div>
+                </div>
+                <input type="text" id="search-input" placeholder="搜索...">
+                <button id="search-btn">🔍</button>
+            </div>
+        </div>
+
+        <!-- 常用网站快捷方式 -->
+        <div id="shortcuts-container">
+            <!-- 快捷方式将通过JavaScript动态生成 -->
+        </div>
+
+        <!-- 功能按钮组 -->
+        <div class="feature-buttons">
+            <button id="todo-btn" class="feature-btn" title="待办事项" style="display: none;">☑️</button>
+            <button id="notes-btn" class="feature-btn" title="笔记" style="display: none;">📝</button>
+            <button id="open-settings" class="feature-btn" title="设置">⚙️</button>
+        </div>
+    </div>
+
+    <!-- 快捷方式添加弹窗 -->
+    <div class="modal" id="add-shortcut-modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>添加常用网站</h3>
+
+            <!-- 标签页导航 -->
+            <div class="tab-container">
+                <div class="shortcut-tab-nav">
+                    <button class="tab-btn active" data-tab="custom">自定义添加</button>
+                    <button class="tab-btn" data-tab="browser-data">从收藏夹/历史记录选择</button>
+                </div>
+
+                <!-- 标签页内容 -->
+                <div class="tab-content">
+                    <!-- 自定义添加标签页 -->
+                    <div class="tab-pane active" id="custom-tab">
+                        <form id="shortcut-form">
+                            <div class="form-group">
+                                <label for="shortcut-url">网址 *</label>
+                                <div class="input-with-button">
+                                    <input type="text" id="shortcut-url" placeholder="https://example.com">
+                                    <button type="button" id="fetch-info-btn" class="btn btn-secondary">
+                                        <span class="btn-text">获取信息</span>
+                                        <span class="btn-loading" style="display: none;">⏳</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="shortcut-name">名称 *</label>
+                                <input type="text" id="shortcut-name" required placeholder="输入网站名称">
+                            </div>
+                            <div class="form-group">
+                                <label for="shortcut-icon-type">图标显示类型</label>
+                                <select id="shortcut-icon-type">
+                                    <option value="auto">纯色图标</option>
+                                    <option value="custom">自定义图标</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="solid-color-group">
+                                <label for="shortcut-custom-color">纯色图标颜色</label>
+                                <div class="color-input-wrapper">
+                                    <div class="color-preview" id="color-preview" style="background-color: #6366f1;"></div>
+                                    <input type="color" id="shortcut-custom-color" value="#6366f1" style="opacity: 0; position: absolute; width: 100%; height: 100%; cursor: pointer;">
+                                    <span class="color-value" id="color-value">#6366f1</span>
+                                </div>
+                                <div class="color-presets" id="color-presets">
+                                    <div class="color-preset" style="background-color: #6366f1;" data-color="#6366f1"></div>
+                                    <div class="color-preset" style="background-color: #8b5cf6;" data-color="#8b5cf6"></div>
+                                    <div class="color-preset" style="background-color: #ec4899;" data-color="#ec4899"></div>
+                                    <div class="color-preset" style="background-color: #f59e0b;" data-color="#f59e0b"></div>
+                                    <div class="color-preset" style="background-color: #10b981;" data-color="#10b981"></div>
+                                    <div class="color-preset" style="background-color: #3b82f6;" data-color="#3b82f6"></div>
+                                    <div class="color-preset" style="background-color: #ef4444;" data-color="#ef4444"></div>
+                                    <div class="color-preset" style="background-color: #14b8a6;" data-color="#14b8a6"></div>
+                                    <div class="color-preset" style="background-color: #f97316;" data-color="#f97316"></div>
+                                    <div class="color-preset" style="background-color: #84cc16;" data-color="#84cc16"></div>
+                                </div>
+                            </div>
+                            <div class="form-group" id="custom-icon-group" style="display: none;">
+                                <label for="shortcut-icon">自定义图标</label>
+                                <div class="input-with-button">
+                        <input type="text" id="shortcut-icon" placeholder="输入Base64字符串或图标URL">
+                        <button type="button" id="upload-icon-btn" class="btn btn-secondary">
+                            本地上传
+                        </button>
+                        <input type="file" id="icon-file-input" accept="image/*" style="display: none;">
+                    </div>
+                    <div id="icon-select" class="icon-select">
+                        <h4>可选图标</h4>
+                        <div class="icon-grid"></div>
+                    </div>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">添加</button>
+                                <button type="button" class="btn btn-secondary" id="cancel-shortcut-btn">取消</button>
+                            </div>
+                            <div id="shortcut-status" class="status-message"></div>
+                        </form>
+                    </div>
+
+                    <!-- 从收藏夹/历史记录选择标签页 -->
+                    <div class="tab-pane" id="browser-data-tab">
+                        <!-- 数据源选择 -->
+                        <div class="data-source-selector">
+                            <button class="data-source-btn active" data-source="bookmarks">收藏夹</button>
+                            <button class="data-source-btn" data-source="history">历史记录</button>
+                        </div>
+
+                        <!-- 搜索框 -->
+                        <div class="search-box">
+                            <input type="text" id="browser-data-search" placeholder="搜索网站...">
+                        </div>
+
+                        <!-- 网站列表 -->
+                        <div class="website-list" id="website-list">
+                            <!-- 网站列表将通过JavaScript动态生成 -->
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="form-actions">
+                            <button type="button" id="add-selected-btn" class="btn btn-primary" disabled>添加选中项</button>
+                            <button type="button" class="btn btn-secondary" id="cancel-browser-data-btn">取消</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧设置面板 -->
+    <div class="settings-panel" id="settings-panel">
+        <div class="settings-panel-header">
+            <h2>AndyTAB 设置</h2>
+            <button id="close-settings" class="close-settings-btn">&times;</button>
+        </div>
+        <div class="settings-panel-content">
+            <!-- 左侧标签导航 -->
+            <div class="settings-sidebar">
+                <div class="tab-nav">
+                    <button class="tab-btn active" data-tab="shortcuts">⌨ 快捷方式</button>
+                    <button class="tab-btn" data-tab="appearance">🎨 外观</button>
+                    <button class="tab-btn" data-tab="behavior">⚙️ 行为</button>
+                    <button class="tab-btn" data-tab="sync">☁️ 同步</button>
+                    <button class="tab-btn" data-tab="about">ℹ️ 关于</button>
+                </div>
+            </div>
+
+            <!-- 右侧内容区域 -->
+            <div class="settings-main">
+                <!-- 快捷方式标签页 -->
+                <div class="tab-pane active" id="shortcuts-tab">
+                    <!-- 图标设置模块 -->
+                    <section class="settings-section">
+                        <h3>🧩 快捷方式管理</h3>
+                        <div class="section-content">
+                            <div class="setting-item">
+                                <div style="display: flex; gap: 10px;">
+                                    <button id="add-shortcut" class="btn btn-primary btn-sm">添加快捷方式</button>
+                                    <button id="edit-shortcuts" class="btn btn-primary btn-sm">编辑快捷方式</button>
+                                </div>
+                            </div>
+                    </section>
+
+                    <!-- 搜索引擎设置模块 -->
+                    <section class="settings-section">
+                        <h3>🔍 搜索引擎设置</h3>
+                        <div class="section-content">
+                            <div class="setting-item">
+                                <label for="search-engine" class="setting-label">默认搜索引擎:</label>
+                                <div class="search-engine-setting-row">
+                                    <select id="search-engine" class="setting-select">
+                                        <option value="google">Google</option>
+                                        <option value="baidu">百度</option>
+                                        <option value="bing">Bing</option>
+                                        <option value="duckduckgo">DuckDuckGo</option>
+                                    </select>
+                                    <button id="manage-engines-btn" class="btn btn-secondary btn-sm">管理搜索引擎</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 时间日期显示设置 -->
+                    <section class="settings-section">
+                        <h3>⏰ 时间日期设置</h3>
+                        <div class="section-content">
+                            <div class="setting-item">
+                                <label class="setting-label">时间显示:</label>
+                                <div class="setting-checkbox">
+                                    <input type="checkbox" id="show-time" checked>
+                                    <label class="toggle-switch">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>显示时间</span>
+                                </div>
+                            </div>
+
+                            <div class="setting-item time-settings slider-controls-group" style="margin-left: 15px;">
+                                <div class="slider-item">
+                                    <label for="time-size" class="slider-label">时间大小</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="time-size" min="12" max="150" step="1" value="70">
+                                        <span id="time-size-value">70px</span>
+                                    </div>
+                                </div>
+
+                                <div class="slider-item">
+                                    <label for="time-format" class="slider-label">时间格式</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="text" id="time-format" placeholder="例如: hh:mm:ss" value="hh:mm:ss"
+                                            class="setting-input">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 日期显示设置 -->
+                            <div class="setting-item">
+                                <label class="setting-label">日期显示:</label>
+                                <div class="setting-checkbox">
+                                    <input type="checkbox" id="show-date" checked>
+                                    <label class="toggle-switch">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>显示日期</span>
+                                </div>
+                            </div>
+
+                            <div class="setting-item date-settings slider-controls-group" style="margin-left: 15px;">
+                                <div class="slider-item">
+                                    <label for="date-size" class="slider-label">日期大小</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="date-size" min="12" max="150" step="1" value="40">
+                                        <span id="date-size-value">40px</span>
+                                    </div>
+                                </div>
+
+                                <div class="slider-item">
+                                    <label for="date-format" class="slider-label">日期格式</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="text" id="date-format" placeholder="例如: YYYY年MM月DD日"
+                                            value="YYYY年MM月DD日" class="setting-input">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 功能按钮设置模块 -->
+                    <section class="settings-section">
+                        <h3>🟡 功能按钮</h3>
+                        <div class="setting-item">
+                            <label class="setting-label">开启待办事项:</label>
+                            <div class="setting-checkbox">
+                                <input type="checkbox" id="enable-todo">
+                                <label class="toggle-switch">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span>开启后，显示待办事项按钮</span>
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <label class="setting-label">开启笔记:</label>
+                            <div class="setting-checkbox">
+                                <input type="checkbox" id="enable-notes">
+                                <label class="toggle-switch">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span>开启后，显示笔记按钮</span>
+                            </div>
+                        </div>
+                    </section>
+
+                </div>
+
+                <!-- 外观标签页 -->
+                <div class="tab-pane" id="appearance-tab">
+
+                    <!-- 图标设置模块 -->
+                    <section class="settings-section">
+                        <h3>🖼️ 图标设置</h3>
+                        <div class="section-content">
+
+                            <div class="setting-item">
+                                <label class="setting-label">隐藏图标名称:</label>
+                                <div class="setting-checkbox">
+                                    <input type="checkbox" id="hide-icon-names">
+                                    <label class="toggle-switch">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>开启后，将隐藏图标名称</span>
+                                </div>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label">图标阴影:</label>
+                                <div class="setting-checkbox">
+                                    <input type="checkbox" id="icon-shadow" checked>
+                                    <label class="toggle-switch">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>开启后，图标将显示阴影效果</span>
+                                </div>
+                            </div>
+
+                            <div class="setting-item slider-controls-group">
+                                <div class="slider-item">
+                                    <label for="icon-border-radius" class="slider-label">图标圆角</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="icon-border-radius" min="0" max="100" step="1"
+                                            value="8">
+                                        <span id="icon-border-radius-value">8px</span>
+                                    </div>
+                                </div>
+
+                                <div class="slider-item">
+                                    <label for="icon-opacity" class="slider-label">图标不透明度</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="icon-opacity" min="0" max="1" step="0.1" value="1">
+                                        <span id="icon-opacity-value">100%</span>
+                                    </div>
+                                </div>
+                                <div class="slider-item">
+                                    <label for="icon-size" class="slider-label">图标大小</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="icon-size" min="20" max="300" step="1" value="100">
+                                        <span id="icon-size-value">100px</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 布局设置模块 -->
+                    <section class="settings-section">
+                        <h3>📐 布局设置</h3>
+                        <div class="section-content">
+                            <div class="setting-item slider-controls-group">
+                                <div class="slider-item">
+                                    <label for="rows" class="slider-label">行数</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="rows" min="1" max="10" step="1" value="3">
+                                        <span id="rows-value">3</span>
+                                    </div>
+                                </div>
+
+                                <div class="slider-item">
+                                    <label for="columns" class="slider-label">列数</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="columns" min="1" max="10" step="1" value="6">
+                                        <span id="columns-value">6</span>
+                                    </div>
+                                </div>
+
+                                <div class="slider-item">
+                                    <label for="column-gap" class="slider-label">列间距</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="column-gap" min="1" max="200" step="1" value="50">
+                                        <span id="column-gap-value">50px</span>
+                                    </div>
+                                </div>
+
+                                <div class="slider-item">
+                                    <label for="row-gap" class="slider-label">行间距</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="row-gap" min="1" max="200" step="1" value="1">
+                                        <span id="row-gap-value">1px</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 字体设置模块 -->
+                    <section class="settings-section">
+                        <h3>🔤 字体设置</h3>
+                        <div class="section-content">
+                            <div class="setting-item">
+                                <label class="setting-label">字体阴影:</label>
+                                <div class="setting-checkbox">
+                                    <input type="checkbox" id="font-shadow" checked>
+                                    <label class="toggle-switch">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>开启后，字体将显示阴影效果</span>
+                                </div>
+                            </div>
+
+                            <div class="setting-item slider-controls-group">
+                                <div class="slider-item">
+                                    <label for="font-size" class="slider-label">字体大小</label>
+                                    <div class="slider-container-vertical">
+                                        <input type="range" id="font-size" min="8" max="24" step="1" value="12">
+                                        <span id="font-size-value">12px</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="setting-item">
+                                <label for="font-color" class="setting-label">字体颜色:</label>
+                                <input type="color" id="font-color" value="#ffffff">
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 背景设置模块 -->
+                    <section class="settings-section">
+                        <h3>🎨 背景设置</h3>
+                        <div class="section-content">
+                            <div class="setting-item">
+                                <label for="background-type" class="setting-label">背景类型:</label>
+                                <select id="background-type" class="setting-select">
+                                    <option value="gradient">渐变背景</option>
+                                    <option value="solid">纯色背景</option>
+                                    <option value="image">自定义图片</option>
+                                    <option value="bing">Bing每日壁纸</option>
+                                </select>
+                            </div>
+
+                            <!-- 渐变背景设置选项 -->
+                            <div class="setting-item background-gradient-setting">
+                                <label class="setting-label">渐变类型:</label>
+                                <select id="gradient-type" class="setting-select">
+                                    <option value="linear">线性渐变</option>
+                                    <option value="radial">径向渐变</option>
+                                </select>
+                            </div>
+
+                            <div class="setting-item background-gradient-setting">
+                                <label class="setting-label">渐变方向:</label>
+                                <select id="gradient-direction" class="setting-select">
+                                    <option value="to bottom">从上到下</option>
+                                    <option value="to right">从左到右</option>
+                                    <option value="to bottom right">从左上到右下</option>
+                                    <option value="to bottom left">从右上到左下</option>
+                                    <option value="to top">从下到上</option>
+                                    <option value="to left">从右到左</option>
+                                    <option value="to top right">从左下到右上</option>
+                                    <option value="to top left">从右下到左上</option>
+                                </select>
+                            </div>
+                            <div class="setting-item background-gradient-setting">
+                                <label class="setting-label">渐变颜色:</label>
+                                <div class="gradient-colors-container">
+                                    <div class="color-picker-group">
+                                        <label for="gradient-color-1" class="color-picker-label">颜色1:</label>
+                                        <input type="color" id="gradient-color-1" value="#667eea">
+                                    </div>
+                                    <div class="color-picker-group">
+                                        <label for="gradient-color-2" class="color-picker-label">颜色2:</label>
+                                        <input type="color" id="gradient-color-2" value="#764ba2">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="setting-item background-color-setting">
+                                <label for="background-color" class="setting-label">背景颜色:</label>
+                                <input type="color" id="background-color" value="#667eea">
+                            </div>
+
+                            <div class="setting-item background-image-setting">
+                                <label for="background-image-url" class="setting-label">背景图片URL:</label>
+                                <div class="input-container">
+                                    <input type="url" id="background-image-url" placeholder="请输入背景图片URL"
+                                        value="https://bing.img.run/1920x1080.php">
+                                    <small class="form-help">请输入网络图片的完整URL地址，如：</small>
+                                    <small class="form-help">https://bing.img.run/1920x1080.php</small>
+                                    <small class="form-help">https://bing.img.run/1366x768.php</small>
+                                </div>
+                                <div class="slider-controls-group">
+                                    <div class="slider-item">
+                                        <label for="overlay-opacity" class="slider-label">遮罩浓度</label>
+                                        <div class="slider-container-vertical">
+                                            <input type="range" id="overlay-opacity" min="0" max="1" step="0.1"
+                                                value="0.3">
+                                            <span id="opacity-value">30%</span>
+                                        </div>
+                                    </div>
+                                    <div class="slider-item">
+                                        <label for="background-blur" class="slider-label">模糊度</label>
+                                        <div class="slider-container-vertical">
+                                            <input type="range" id="background-blur" min="0" max="20" step="1"
+                                                value="5">
+                                            <span id="blur-value">5px</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                </div>
+
+                <!-- 行为标签页 -->
+                <div class="tab-pane" id="behavior-tab">
+                    <!-- 目标打开方式模块 -->
+                    <section class="settings-section">
+                        <h3>🔗 目标打开方式</h3>
+                        <div class="section-content">
+                            <div class="setting-item">
+                                <label class="setting-label">在新标签页中打开网站:</label>
+                                <div class="setting-checkbox">
+                                    <input type="checkbox" id="open-websites-in-new-tab" checked>
+                                    <label class="toggle-switch">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>开启后，点击常用网站将在新标签页中打开</span>
+                                </div>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label">在新标签页中打开搜索结果:</label>
+                                <div class="setting-checkbox">
+                                    <input type="checkbox" id="open-search-in-new-tab" checked>
+                                    <label class="toggle-switch">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>开启后，点击搜索将在新标签页中打开</span>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- 同步标签页 -->
+                <div class="tab-pane" id="sync-tab">
+                    <!-- WebDAV配置模块 -->
+                    <section class="settings-section">
+                        <h3>🌐 WebDAV 配置</h3>
+                        <div class="section-content">
+                            <div class="backup-submodule">
+                                <form id="webdav-form">
+                                    <div class="form-group">
+                                        <label for="webdav-url">☁️ 服务器地址</label>
+                                        <input type="url" id="webdav-url" placeholder="URL，比如：https://dav.jianguoyun.com/dav/" value="https://dav.jianguoyun.com/dav/"
+                                            required>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="webdav-username">用户名</label>
+                                            <input type="text" id="webdav-username" placeholder="用户名">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="webdav-password">密码</label>
+                                            <input type="password" id="webdav-password" placeholder="密码">
+                                        </div>
+                                    </div>
+
+                                    <div class="backup-actions">
+                                        <button type="button" id="test-connection"
+                                            class="btn btn-secondary">测试连接</button>
+                                        <button type="submit" class="btn btn-primary">保存配置</button>
+                                    </div>
+
+                                    <div id="connection-status" class="status-message"></div>
+                                </form>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 数据备份模块 -->
+                    <section class="settings-section">
+                        <h3>💾 数据备份</h3>
+                        <div class="section-content">
+                            <!-- 云端备份子模块 -->
+                            <div class="backup-submodule">
+                                <h4>☁️ 云端备份</h4>
+                                <div class="backup-actions">
+                                    <button id="backup-data" class="btn btn-primary">创建备份</button>
+                                    <button id="restore-data" class="btn btn-secondary">恢复备份</button>
+                                </div>
+
+                                <div class="backup-list" id="backup-list">
+                                    <!-- 备份文件列表将通过JavaScript动态生成 -->
+                                </div>
+                            </div>
+
+                            <!-- 本地备份子模块 -->
+                            <div class="backup-submodule">
+                                <h4>💻 本地备份</h4>
+                                <div class="backup-actions">
+                                    <button id="export-data" class="btn btn-primary">导出本地备份</button>
+                                    <input type="file" id="import-data" accept=".json" style="display: none;">
+                                    <button id="import-data-btn" class="btn btn-secondary">导入本地备份</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- 关于标签页 -->
+                <div class="tab-pane" id="about-tab">
+                    <!-- 关于模块 -->
+                    <section class="settings-section">
+                        <h3>ℹ️ 关于</h3>
+                        <div class="section-content">
+                            <div class="about-info">
+                                <p><strong>AndyTAB</strong> - 自定义新标签页扩展</p>
+                                <p>支持WebDAV数据同步的自定义新标签页工具</p>
+                                <p>© 2025 AndyTAB</p>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- 管理搜索引擎弹窗 -->
+            <div class="modal" id="manage-engines-modal">
+                <div class="modal-content modal-wide">
+                    <span class="close">&times;</span>
+                    <h3>管理搜索引擎</h3>
+                    <div class="modal-body">
+                        <!-- 搜索引擎列表 -->
+                        <div class="engines-list-container">
+                            <div class="engines-header">
+                                <h4>已添加的搜索引擎</h4>
+                                <button id="add-engine-btn" class="btn btn-primary btn-sm">+ 添加搜索引擎</button>
+                            </div>
+                            <div class="engines-list" id="engines-list">
+                                <!-- 搜索引擎列表将通过JavaScript动态生成 -->
+                            </div>
+                        </div>
+
+                        <!-- 添加/编辑搜索引擎表单 -->
+                        <div class="engine-form-container" id="engine-form-container" style="display: none;">
+                            <h4 id="engine-form-title">添加搜索引擎</h4>
+                            <form id="engine-form">
+                                <input type="hidden" id="engine-id" value="">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="engine-key">搜索引擎标识:</label>
+                                        <input type="text" id="engine-key" placeholder="例如: google" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="engine-name">显示名称:</label>
+                                        <input type="text" id="engine-name" placeholder="例如: Google" required>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="engine-url">搜索网址:</label>
+                                    <input type="url" id="engine-url"
+                                        placeholder="例如: https://www.google.com/search?q=%s" required>
+                                    <small class="form-help">请用“%s”代替搜索字词</small>
+                                </div>
+                                <div class="form-actions">
+                                    <button type="submit" class="btn btn-primary">保存</button>
+                                    <button type="button" id="cancel-engine-btn" class="btn btn-secondary">取消</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 待办事项弹窗 -->
+            <div class="modal" id="todo-modal">
+                <div class="modal-content modal-wide todo-modal-content">
+                    <span class="close">&times;</span>
+                    <h3>待办事项</h3>
+                    <div class="">
+                        <!-- 待办事项列表 -->
+                        <div class="todo-list" id="todo-list">
+                            <!-- 待办事项将通过JavaScript动态生成 -->
+                        </div>
+                        <div class="form-actions" style="margin-top: 1rem;">
+                            <button id="add-todo-btn" class="btn btn-primary">添加待办事项</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 笔记弹窗 -->
+            <div class="modal" id="notes-modal">
+                <div class="modal-content modal-wide notes-modal-content">
+                    <span class="close">&times;</span>
+                    <h3>笔记</h3>
+                    <div class="">
+                        <!-- 笔记内容 -->
+                        <div class="notes-container" style="width: 99%;">
+                            <textarea id="notes-content" placeholder="在这里输入你的笔记..." rows="15"></textarea>
+                            <div class="form-actions" style="margin-top: 1rem;">
+                                <button type="button" id="save-notes-btn" class="btn btn-primary">保存笔记</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script type="module" src="index.js"></script>
+</body>
+
+</html>

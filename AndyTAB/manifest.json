@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "AndyTAB",
+  "version": "1.1.11",
+  "description": "自定义新标签页扩展，支持WebDAV数据同步",
+  "author": "Andy",
+  "action": {
+    "default_icon": {
+      "16": "src/assets/icons/icon16.png",
+      "32": "src/assets/icons/icon32.png",
+      "48": "src/assets/icons/icon48.png",
+      "128": "src/assets/icons/icon128.png"
+    },
+    "default_title": "AndyTAB",
+    "default_popup": "src/popup/popup.html"
+  },
+  "chrome_url_overrides": {
+    "newtab": "src/newtab/index.html"
+  },
+
+
+  "permissions": [
+    "storage",
+    "activeTab",
+    "bookmarks",
+    "history",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*",
+    "file://*/*"
+  ],
+  "icons": {
+    "16": "src/assets/icons/icon16.png",
+    "32": "src/assets/icons/icon32.png",
+    "48": "src/assets/icons/icon48.png",
+    "128": "src/assets/icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/assets/*"],
+      "matches": ["*://*/*"]
+    }
+  ]
+}
