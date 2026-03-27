@@ -577,6 +577,13 @@
                                         </div>
                                     </div>
 
+                                    <div class="form-group">
+                                        <label for="webdav-storage-path">备份文件存储位置</label>
+                                        <input type="text" id="webdav-storage-path" placeholder="存储路径，例如：AndyTab" value="AndyTab">
+                                        <small class="form-help">指定WebDAV服务器上的存储文件夹名称</small>
+                                        <small class="form-help">默认为 AndyTab，如果要同步Via浏览器的书签，建议设置为“Via”（注意大小写，不包含引号）</small>
+                                    </div>
+
                                     <div class="backup-actions">
                                         <button type="button" id="test-connection"
                                             class="btn btn-secondary">测试连接</button>
@@ -584,6 +591,20 @@
                                     </div>
 
                                     <div id="connection-status" class="status-message"></div>
+
+                                    <!-- 同步状态指示器 -->
+                                    <div class="sync-status-container" id="sync-status-container" style="display: none;">
+                                        <div class="sync-status-header">
+                                            <span class="sync-status-icon" id="sync-status-icon">☁️</span>
+                                            <span class="sync-status-text" id="sync-status-text">同步状态</span>
+                                        </div>
+                                        <div class="sync-status-details">
+                                            <span id="last-sync-time">上次同步: 从未</span>
+                                            <button id="manual-sync-btn" class="btn btn-small btn-primary" title="立即同步">
+                                                🔄 立即同步
+                                            </button>
+                                        </div>
+                                    </div>
                                 </form>
                             </div>
                         </div>
@@ -597,8 +618,8 @@
                             <div class="backup-submodule">
                                 <h4>☁️ 云端备份</h4>
                                 <div class="backup-actions">
-                                    <button id="backup-data" class="btn btn-primary">创建备份</button>
-                                    <button id="restore-data" class="btn btn-secondary">恢复备份</button>
+                                    <button id="backup-data" class="btn btn-primary">创建云端备份</button>
+                                    <button id="restore-data" class="btn btn-secondary">获取云端备份列表</button>
                                 </div>
 
                                 <div class="backup-list" id="backup-list">

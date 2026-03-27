@@ -216,8 +216,7 @@ async function fetchWebsiteInfo() {
                     setTimeout(() => reject(new Error('请求超时')), 10000)
                 )
             ]);
-        } catch (messageError) {
-            console.log('后台消息发送失败，尝试直接获取:', messageError);
+        } catch {
             // 备选方案：直接获取
             response = await fetchWebsiteInfoDirectly(fullUrl);
         }
@@ -232,20 +231,19 @@ async function fetchWebsiteInfo() {
                 } else {
                     // 反向赋值：使用用户输入的值作为标题
                     title = nameInput.value;
-                    console.log('使用用户输入的名称作为标题:', title);
                 }
             }
-            
+
             // 如有图标，自动填充图标
             if (icon && !iconInput.value.trim()) {
                 iconTypeSelect.value = 'custom';
                 iconInput.value = icon;
                 toggleCustomIconField();
             }
-            
+
             // 加载可选图标
             loadOptionalIcons(icon, title);
-            
+
             showStatusMessage(`✅ 获取成功！标题: ${title || '未找到标题'}`, 'success');
             
             // 聚焦到名称输入框
@@ -263,13 +261,11 @@ async function fetchWebsiteInfo() {
                 if (!nameInput.value.trim()) {
                     nameInput.value = domain;
                 }
-            } catch (autoError) {
-                console.log('自动填充域名失败:', autoError);
+            } catch {
+                // 自动填充失败，忽略错误
             }
         }
     } catch (error) {
-        console.error('获取网站信息出错:', error);
-        
         let errorMessage = '获取网站信息失败';
         if (error.message.includes('timeout')) {
             errorMessage = '⏱️ 请求超时，请检查网络连接';
@@ -282,9 +278,9 @@ async function fetchWebsiteInfo() {
         } else {
             errorMessage = '❌ 获取失败: ' + error.message;
         }
-        
+
         showStatusMessage(errorMessage, 'error');
-        
+
         // 自动填充域名为名称
         try {
             const urlObj = new URL(fullUrl);
@@ -292,8 +288,8 @@ async function fetchWebsiteInfo() {
             if (!nameInput.value.trim()) {
                 nameInput.value = domain;
             }
-        } catch (autoError) {
-            console.log('自动填充域名失败:', autoError);
+        } catch {
+            // 自动填充失败，忽略错误
         }
     } finally {
         // 恢复按钮状态
@@ -451,36 +447,33 @@ async function loadOptionalIcons(currentIcon, title) {
         
         for (const length of searchLengths) {
             if (searchIcons.length >= 5) break;
-            
+
             const searchQuery = title.substring(0, length);
-            console.log(`搜索图标关键词（前${length}个字符）:`, searchQuery);
-            
+
             try {
                 // 使用iTunes Search API搜索图标
                 const apiUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchQuery)}&country=cn&entity=software&limit=6`;
-                console.log('调用iTunes Search API:', apiUrl);
-                
+
                 const response = await fetch(apiUrl);
                 const data = await response.json();
-                console.log('iTunes Search API响应:', data);
-                
+
                 // 提取图标URL
                 if (data.results && data.results.length > 0) {
                     const apiIcons = data.results.slice(0, 5).map(item => item.artworkUrl512);
                     searchIcons.push(...apiIcons);
                     break; // 找到结果，退出循环
                 }
-            } catch (error) {
-                console.error(`获取iTunes API数据失败（${length}字符）:`, error);
+            } catch {
+                // 获取失败，继续尝试下一个长度
             }
         }
-        
+
         // 添加搜索到的图标
         if (searchIcons.length > 0) {
             icons.push(...searchIcons.slice(0, 5));
         }
     }
-    
+
     // 确保最多显示6个图标
     const displayIcons = icons.slice(0, 6);
     
@@ -501,19 +494,15 @@ async function loadOptionalIcons(currentIcon, title) {
         
         // 单击事件：填入URL
         iconItem.addEventListener('click', () => {
-            console.log('单击图标，填入URL:', iconUrl);
             iconInput.value = iconUrl;
         });
-        
+
         // 双击事件：填入Base64字符串
         iconItem.addEventListener('dblclick', async () => {
-            console.log('双击图标，准备转换为Base64:', iconUrl);
             try {
                 const base64 = await convertImageToBase64(iconUrl);
-                console.log('转换成功，填入Base64:', base64.substring(0, 50) + '...');
                 iconInput.value = base64;
-            } catch (error) {
-                console.error('转换为Base64失败:', error);
+            } catch {
                 showStatusMessage('❌ 图标转换失败', 'error');
             }
         });

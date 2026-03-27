@@ -129,46 +129,162 @@ async function init() {
 
 // 初始化同步检查
 async function initSyncCheck() {
-    try {        
+    try {
         // 获取本地最后同步时间戳
         const localLastTimestamp = await storageManager.getData('andy_tab_sync_lasttimestamp', null);
-        
+
         // 获取云端最新同步文件
         const latestSyncFile = await storageManager.getLatestSyncFile();
-        
+
+        // 如果没有云端文件，直接返回
         if (!latestSyncFile) {
             return;
         }
-        
-        // 从文件名中提取云端同步时间戳
-        const cloudTimestampMatch = latestSyncFile.name.match(/[_-]([0-9]+)\.json$/);
-        if (!cloudTimestampMatch) {
-            console.error('无法从文件名提取云端时间戳：', latestSyncFile.name);
+
+        // 使用文件的修改时间作为云端时间戳
+        const cloudTimestamp = latestSyncFile.modified ? new Date(latestSyncFile.modified).getTime() : null;
+
+        if (!cloudTimestamp) {
             return;
         }
-        
-        const cloudTimestamp = parseInt(cloudTimestampMatch[1]);        
-        // 情况1：云端时间戳较新或者本地没有同步记录，直接下载云端数据
-        if (!localLastTimestamp||localLastTimestamp < cloudTimestamp) {
-            console.log('云端时间戳较新或者本地没有同步记录，直接下载云端数据');
+
+        // 添加30秒的容差时间，避免由于时间精度问题导致的误判
+        const TIME_TOLERANCE = 3000; // 3秒
+
+        // 情况1：本地没有同步记录，检查本地是否有数据
+        if (!localLastTimestamp) {
+            // 检查本地是否有数据
+            const localData = await storageManager.getAllData();
+            const hasLocalData = localData.shortcuts?.length > 0 || localData.bookmarks?.length > 0;
+            
+            if (hasLocalData) {
+                // 本地有数据，显示冲突对话框让用户选择
+                showSyncConflictDialog(latestSyncFile.name, 0, cloudTimestamp);
+            } else {
+                // 本地无数据，直接下载云端数据
+                await storageManager.downloadAndApplySyncData(latestSyncFile.name);
+                location.reload();
+            }
+            return;
+        }
+
+        // 计算时间差
+        const timeDiff = localLastTimestamp - cloudTimestamp;
+
+        // 情况2：云端数据较新（本地比云端旧超过容差），下载云端数据
+        if (timeDiff < -TIME_TOLERANCE) {
             await storageManager.downloadAndApplySyncData(latestSyncFile.name);
-            // 重新加载页面以应用新数据
             location.reload();
             return;
         }
-        
-        // 情况2：时间戳相同，不进行操作
-        if (localLastTimestamp === cloudTimestamp) {
-            console.log('本地和云端时间戳相同，无需同步');
+
+        // 情况3：本地数据较新（本地比云端新超过容差），显示冲突对话框让用户选择
+        if (timeDiff > TIME_TOLERANCE) {
+            showSyncConflictDialog(latestSyncFile.name, localLastTimestamp, cloudTimestamp);
             return;
         }
-        
-        // 情况3：时间戳不同，显示冲突解决对话框
-        console.log('本地和云端时间戳不同，显示冲突解决对话框');
-        showSyncConflictDialog(latestSyncFile.name, localLastTimestamp, cloudTimestamp);
-        
+
+        // 情况4：时间戳在容差范围内，视为相同，无需同步
+
     } catch (error) {
         console.error('初始化同步检查失败：', error);
+    }
+}
+
+// 更新同步状态UI
+async function updateSyncStatusUI() {
+    const syncStatusContainer = document.getElementById('sync-status-container');
+    const lastSyncTimeEl = document.getElementById('last-sync-time');
+    const syncStatusIcon = document.getElementById('sync-status-icon');
+    const syncStatusText = document.getElementById('sync-status-text');
+    
+    // 检查WebDAV是否已配置
+    const config = await storageManager.getWebDAVConfig();
+    if (!config || !config.url) {
+        syncStatusContainer.style.display = 'none';
+        return;
+    }
+    
+    // 显示同步状态容器
+    syncStatusContainer.style.display = 'block';
+    
+    // 获取最后同步时间
+    const lastSyncTimestamp = await storageManager.getData('andy_tab_sync_lasttimestamp', null);
+    if (lastSyncTimestamp) {
+        const date = new Date(lastSyncTimestamp);
+        const timeStr = date.toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        lastSyncTimeEl.textContent = `上次同步: ${timeStr}`;
+        syncStatusIcon.textContent = '☁️';
+        syncStatusText.textContent = '已同步';
+        syncStatusContainer.classList.remove('error');
+    } else {
+        lastSyncTimeEl.textContent = '上次同步: 从未';
+        syncStatusIcon.textContent = '⚠️';
+        syncStatusText.textContent = '未同步';
+    }
+}
+
+// 设置同步状态
+function setSyncStatus(status, message) {
+    const syncStatusContainer = document.getElementById('sync-status-container');
+    const syncStatusIcon = document.getElementById('sync-status-icon');
+    const syncStatusText = document.getElementById('sync-status-text');
+    const manualSyncBtn = document.getElementById('manual-sync-btn');
+    
+    syncStatusContainer.classList.remove('syncing', 'success', 'error');
+    manualSyncBtn.disabled = status === 'syncing';
+    
+    switch (status) {
+        case 'syncing':
+            syncStatusContainer.classList.add('syncing');
+            syncStatusIcon.textContent = '🔄';
+            syncStatusText.textContent = message || '正在同步...';
+            break;
+        case 'success':
+            syncStatusContainer.classList.add('success');
+            syncStatusIcon.textContent = '✅';
+            syncStatusText.textContent = message || '同步成功';
+            setTimeout(() => {
+                syncStatusContainer.classList.remove('success');
+                updateSyncStatusUI();
+            }, 3000);
+            break;
+        case 'error':
+            syncStatusContainer.classList.add('error');
+            syncStatusIcon.textContent = '❌';
+            syncStatusText.textContent = message || '同步失败';
+            setTimeout(() => {
+                syncStatusContainer.classList.remove('error');
+                updateSyncStatusUI();
+            }, 5000);
+            break;
+        default:
+            updateSyncStatusUI();
+    }
+}
+
+// 处理手动同步
+async function handleManualSync() {
+    try {
+        setSyncStatus('syncing', '正在同步...');
+        
+        const result = await storageManager.uploadSyncData();
+        
+        if (result.success) {
+            setSyncStatus('success', '同步成功');
+            await updateSyncStatusUI();
+        } else {
+            setSyncStatus('error', result.message || '同步失败');
+        }
+    } catch (error) {
+        console.error('手动同步失败：', error);
+        setSyncStatus('error', error.message || '同步失败');
     }
 }
 
@@ -372,8 +488,6 @@ async function loadAndApplySettings() {
     applySearchEngineSettings(settings);
     applyIconLayoutFontSettings(settings);
     await applyTodoNotesSettings(settings);
-    
-    console.log('设置已应用:', settings);
 }
 
 // 更新背景设置项的可见性
@@ -661,8 +775,8 @@ function applyIconLayoutFontSettings(settings) {
             
             if (!hasCustomIcon || isDefaultIcon) {
                 const iconSizeValue = parseInt(settings.iconSize.replace('px', ''));
-                // 根据图标大小计算合适的文字大小（约为图标大小的40%）
-                const textSize = Math.max(12, Math.min(60, iconSizeValue * 0.8));
+                // 根据图标大小计算合适的文字大小（约为图标大小的30%）
+                const textSize = Math.max(10, Math.min(48, iconSizeValue * 0.3));
                 icon.style.fontSize = textSize + 'px';
             }
         }
@@ -1442,7 +1556,6 @@ async function saveShortcuts(shortcuts) {
     await chrome.storage.local.set({
         [STORAGE_KEYS.SHORTCUTS]: shortcuts
     });
-    console.log('快捷方式已保存');
 }
 
 
@@ -1670,9 +1783,7 @@ async function renderShortcuts(shortcuts, isPreview = false) {
                         // 异步缓存未命中的图标，不阻塞渲染流程
                         img.src = shortcut.icon;
                         // 在后台缓存图片
-                        imageCacheManager.cacheImage(shortcut.icon, false).catch(err => {
-                            console.warn(`后台缓存图标失败: ${shortcut.icon}`, err);
-                        });
+                        imageCacheManager.cacheImage(shortcut.icon, false).catch(() => {});
                     }
                     
                     img.alt = shortcut.name;
@@ -1686,7 +1797,8 @@ async function renderShortcuts(shortcuts, isPreview = false) {
                         const settings = window.cachedSettings || getSettingsSync();
                         if (settings.iconSize) {
                             const iconSizeValue = parseInt(settings.iconSize.replace('px', ''));
-                            const textSize = Math.max(12, Math.min(60, iconSizeValue * 0.4));
+                            // 根据图标大小计算合适的文字大小（约为图标大小的30%）
+                            const textSize = Math.max(10, Math.min(48, iconSizeValue * 0.3));
                             icon.style.fontSize = textSize + 'px';
                         }
                     };
@@ -1773,8 +1885,8 @@ async function renderShortcuts(shortcuts, isPreview = false) {
                     // 纯色模式下，图标文字随快捷方式大小变化
                     if (shortcut.iconType !== 'custom' || !shortcut.icon) {
                         const iconSizeValue = parseInt(settings.iconSize.replace('px', ''));
-                        // 根据图标大小计算合适的文字大小（约为图标大小的40%）
-                        const textSize = Math.max(12, Math.min(48, iconSizeValue * 0.4));
+                        // 根据图标大小计算合适的文字大小（约为图标大小的30%）
+                        const textSize = Math.max(10, Math.min(48, iconSizeValue * 0.3));
                         icon.style.fontSize = textSize + 'px';
                     }
                 }
@@ -3251,7 +3363,6 @@ window.renderShortcuts = renderShortcuts;
                     } else {
                         // 反向赋值：使用用户输入的值作为标题
                         title = nameInput.value;
-                        console.log('使用用户输入的名称作为标题:', title);
                     }
                 }
                 
@@ -3308,8 +3419,8 @@ window.renderShortcuts = renderShortcuts;
                 const domain = urlObj.hostname.replace('www.', '');
                 nameInput.value = domain;
                 showStatusMessage('shortcut-status', 'ℹ️ 已自动填充域名作为名称', 'info');
-            } catch (autoError) {
-                console.log('自动填充域名失败:', autoError);
+            } catch {
+                // 自动填充失败，忽略错误
             }
         } finally {
             // 恢复按钮状态
@@ -3516,6 +3627,7 @@ async function initWebDAVConfig() {
         document.getElementById('webdav-url').value = config.url || '';
         document.getElementById('webdav-username').value = config.username || '';
         document.getElementById('webdav-password').value = config.password || '';
+        document.getElementById('webdav-storage-path').value = config.storagePath || 'AndyTab';
     }
     
     // 绑定表单提交事件
@@ -3523,6 +3635,12 @@ async function initWebDAVConfig() {
     
     // 绑定连接测试事件
     document.getElementById('test-connection').addEventListener('click', handleTestConnection);
+    
+    // 绑定手动同步按钮事件
+    document.getElementById('manual-sync-btn').addEventListener('click', handleManualSync);
+    
+    // 初始化同步状态显示
+    updateSyncStatusUI();
 }
 
 // 处理WebDAV表单提交
@@ -3532,6 +3650,7 @@ async function handleWebDAVFormSubmit(e) {
     const url = document.getElementById('webdav-url').value.trim();
     const username = document.getElementById('webdav-username').value.trim();
     const password = document.getElementById('webdav-password').value;
+    const storagePath = document.getElementById('webdav-storage-path').value.trim() || 'AndyTab';
     
     // 验证URL格式
     if (!url) {
@@ -3558,10 +3677,17 @@ async function handleWebDAVFormSubmit(e) {
         return;
     }
     
+    // 验证存储路径（不能包含特殊字符）
+    if (!/^[a-zA-Z0-9_-]+$/.test(storagePath)) {
+        showStatusMessage('connection-status', '存储路径只能包含字母、数字、下划线和横线', 'error');
+        return;
+    }
+    
     const config = {
         url: url,
         username: username,
-        password: password
+        password: password,
+        storagePath: storagePath
     };
     
     try {
@@ -3619,9 +3745,7 @@ async function handleTestConnection() {
     showStatusMessage('connection-status', '正在测试连接...', 'info');
     
     try {
-        console.log('测试WebDAV连接，配置：', config);
         const result = await storageManager.testWebDAVConnection(config);
-        console.log('WebDAV连接测试结果：', result);
         
         if (result.success) {
             showStatusMessage('connection-status', '连接测试成功', 'success');
@@ -3629,7 +3753,6 @@ async function handleTestConnection() {
             showStatusMessage('connection-status', '连接测试失败：' + result.message, 'error');
         }
     } catch (error) {
-        console.error('WebDAV连接测试失败：', error);
         showStatusMessage('connection-status', '连接测试失败：' + error.message, 'error');
     }
 }
@@ -4158,7 +4281,6 @@ async function saveSettings() {
             } else if (typeof renderShortcuts === 'function') {
                 await renderShortcuts(shortcuts);
             } else {
-                console.warn('renderShortcuts function not found, reloading shortcuts...');
                 // 如果函数不可用，重新加载快捷方式
                 await loadShortcuts();
             }
@@ -4407,43 +4529,26 @@ function renderBackupFiles(backupFiles) {
     if (backupFiles.length === 0) {
         backupList.innerHTML = '<p style="text-align: center; color: #6c757d; margin-top: 10px;">暂无备份文件</p>';
         return;
-    }    
-    // 按时间戳从新到旧排序
+    }
+    
+    // 按修改时间从新到旧排序
     const sortedBackupFiles = backupFiles.sort((a, b) => {
-        // 尝试从文件名中提取时间戳（13位数字）
-        const timestampA = a.name.match(/(\d{13})(?:\.json)?$/);
-        const timestampB = b.name.match(/(\d{13})(?:\.json)?$/);
-        
-        // 如果都找到时间戳，按时间戳排序
-        if (timestampA && timestampB) {
-            const timeA = parseInt(timestampA[1]);
-            const timeB = parseInt(timestampB[1]);
-            return timeB - timeA; // 从新到旧排序
-        }
-        
-        // 如果一个有时间戳，另一个没有，有时间戳的排在前面
-        if (timestampA && !timestampB) return -1;
-        if (!timestampA && timestampB) return 1;
-        
-        // 如果都没有时间戳，按文件名排序
-        return b.name.localeCompare(a.name);
+        const timeA = a.modified ? new Date(a.modified).getTime() : 0;
+        const timeB = b.modified ? new Date(b.modified).getTime() : 0;
+        return timeB - timeA; // 从新到旧排序
     });
     
     backupList.innerHTML = sortedBackupFiles.map(file => {
-        // 从文件名最后的13位数字获取时间戳（不包括后缀名）
-        // 格式如：bookmarks_backup_2025-12-09_1765271324477.json 或 bookmarks_sync-2025-12-10-1765329991561
-        const timestampMatch = file.name.match(/(\d{13})(?:\.json)?$/);
+        // 使用文件的修改时间
         let date = '未知时间';
         
-        if (timestampMatch) {
-            const timestamp = parseInt(timestampMatch[1]); // 获取最后13位时间戳
-            
+        if (file.modified) {
             try {
-                const dateObj = new Date(timestamp);
+                const dateObj = new Date(file.modified);
                 date = dateObj.toLocaleString('zh-CN');
             } catch (e) {
-                // 如果时间戳转换失败，显示原始时间戳
-                date = timestampMatch[1];
+                // 如果解析失败，显示原始修改时间字符串
+                date = file.modified;
             }
         }
         
@@ -4919,11 +5024,9 @@ async function fetchWebsiteInfoDirectly(url) {
                             }
                         }
                     }
-                } else {
-                    console.log('直接获取 - HTTP请求失败，状态码:', response.status);
                 }
-            } catch (fetchError) {
-                console.log('直接获取 - 获取失败，使用域名作为标题:', fetchError.message);
+            } catch {
+                // 获取失败，忽略错误
             }
             
             // 如果标题还是空的，使用域名作为标题
@@ -4932,7 +5035,6 @@ async function fetchWebsiteInfoDirectly(url) {
             }
             
         } catch (urlError) {
-            console.error('直接获取 - URL解析失败:', urlError);
             return { 
                 success: false, 
                 error: '无效的网址格式: ' + urlError.message 

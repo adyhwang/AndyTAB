@@ -19,9 +19,6 @@ class StorageManager {
     constructor() {
         this.webdavClient = null;
         this.offlineCache = new Map();
-        // 初始化方法改为手动调用，不再在构造函数中自动调用
-        // this.init();
-        // 防抖定时器
         this.syncDebounceTimer = null;
     }
     
@@ -83,7 +80,6 @@ class StorageManager {
         chrome.storage.onChanged.addListener(async (changes, areaName) => {
             // 监听 user_bookmarks 变化
             if (areaName === 'local' && changes[STORAGE_KEYS.USER_BOOKMARKS]) {
-                console.log('用户书签已更新，准备同步');
                 // 触发同步
                 await this.uploadSyncDataWithDebounce();
             }
@@ -569,13 +565,29 @@ class StorageManager {
         }
     }
 
-    // 确保AndyTab目录存在
-    async _ensureAndyTabDirectory() {
+    // 获取WebDAV存储路径
+    async _getStoragePath() {
+        const config = await this.getWebDAVConfig();
+        return config?.storagePath || 'AndyTab';
+    }
+
+    // 确保存储目录存在
+    async _ensureStorageDirectory() {
         try {
-            await this.webdavClient.createDirectory('AndyTab');
+            const storagePath = await this._getStoragePath();
+            await this.webdavClient.createDirectory(storagePath);
         } catch (error) {
             // 如果文件夹已存在，createDirectory会报错，这是正常的
         }
+    }
+
+    // 获取存储路径并确保目录存在（统一方法，减少重复代码）
+    async _getStoragePathWithEnsure() {
+        if (!this.webdavClient) {
+            throw new Error('WebDAV未配置');
+        }
+        await this._ensureStorageDirectory();
+        return await this._getStoragePath();
     }
     
     // 备份数据到本地文件
@@ -598,18 +610,23 @@ class StorageManager {
     async backupData() {
         try {
             const data = await this.getAllData();
-            const backupName = `bookmarks_backup_${new Date().toISOString().slice(0, 10)}_${Date.now()}.json`;
             
             if (this.webdavClient) {
-                // 首先尝试创建AndyTab文件夹（如果不存在）
-                await this._ensureAndyTabDirectory();
+                // 云端备份 - 只上传andy_tab_sync.json（与自动同步的完整备份相同）
+                // 获取存储路径并确保目录存在
+                const storagePath = await this._getStoragePathWithEnsure();
                 
-                // 备份到WebDAV的AndyTab文件夹
-                await this.webdavClient.putFile(`AndyTab/${backupName}`, JSON.stringify(data, null, 2));
+                // 生成带时间戳的备份文件名
+                const timestamp = Date.now();
+                const dateStr = new Date().toISOString().slice(0, 10);
+                const backupName = `andy_tab_backup_${dateStr}_${timestamp}.json`;
                 
-                return { success: true, message: '备份成功', backupName };
+                // 备份到WebDAV的存储文件夹
+                await this.webdavClient.putFile(`${storagePath}/${backupName}`, JSON.stringify(data, null, 2));
+                
+                return { success: true, message: '云端备份成功', backupName };
             } else {
-                // WebDAV未配置，执行本地备份
+                // WebDAV未配置，执行本地备份（保持原有逻辑不变）
                 return await this._backupDataToLocal(data);
             }
         } catch (error) {
@@ -637,28 +654,152 @@ class StorageManager {
     // 恢复数据
     async restoreData(backupName) {
         try {
-            let data;
-            
-            if (this.webdavClient) {
-                // WebDAV备份
-                const backupData = await this.webdavClient.getFile(`AndyTab/${backupName}`);
-                data = JSON.parse(backupData);
-            } else {
+            if (!this.webdavClient) {
                 throw new Error('WebDAV未配置，无法恢复WebDAV备份');
             }
-            
-            if (!data) {
+
+            const storagePath = await this._getStoragePath();
+            const backupData = await this.webdavClient.getFile(`${storagePath}/${backupName}`);
+
+            if (!backupData) {
                 throw new Error('备份不存在');
             }
-            
-            await this.saveAllData(data);
-            return { success: true, message: '恢复成功' };
+
+            // 根据文件后缀名使用不同的恢复逻辑
+            if (backupName.endsWith('.json')) {
+                // 1. .json文件 - 完整备份，使用原有逻辑
+                return await this._restoreFromJson(backupData);
+            } else if (backupName === 'bookmarks.html') {
+                // 2. bookmarks.html - 书签文件
+                return await this._restoreFromBookmarksHtml(backupData);
+            } else if (backupName === 'favorites.txt') {
+                // 3. favorites.txt - 快捷方式文件
+                return await this._restoreFromFavoritesTxt(backupData);
+            } else {
+                throw new Error('不支持的备份文件格式');
+            }
         } catch (error) {
             return { success: false, message: error.message };
         }
     }
+
+    // 从JSON文件恢复（完整备份）
+    async _restoreFromJson(jsonData) {
+        try {
+            const data = JSON.parse(jsonData);
+            await this.saveAllData(data);
+            return { success: true, message: '完整备份恢复成功' };
+        } catch (error) {
+            throw new Error('JSON文件解析失败：' + error.message);
+        }
+    }
+
+    // 从bookmarks.html恢复书签（使用合并逻辑，保持原有路径位置）
+    async _restoreFromBookmarksHtml(htmlData) {
+        try {
+            // 解析HTML书签文件
+            const bookmarks = this._parseBookmarksHtml(htmlData);
+            
+            // 使用合并逻辑恢复书签（参考_saveAllData中的实现）
+            await this._restoreBrowserBookmarks(bookmarks);
+            
+            return { success: true, message: '书签恢复成功' };
+        } catch (error) {
+            throw new Error('书签恢复失败：' + error.message);
+        }
+    }
+
+    // 解析bookmarks.html格式的书签（转换为Chrome书签树格式）
+    _parseBookmarksHtml(htmlData) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlData, 'text/html');
+        
+        // 递归解析书签结构
+        const parseDl = (dlElement) => {
+            const children = [];
+            const dtElements = dlElement.querySelectorAll(':scope > dt');
+            
+            for (const dt of dtElements) {
+                const h3 = dt.querySelector(':scope > h3');
+                const a = dt.querySelector(':scope > a');
+                const childDl = dt.querySelector(':scope > dl');
+                
+                if (h3 && childDl) {
+                    // 文件夹
+                    const folder = {
+                        title: h3.textContent || '未命名文件夹',
+                        children: parseDl(childDl)
+                    };
+                    children.push(folder);
+                } else if (a) {
+                    // 书签链接
+                    const bookmark = {
+                        title: a.textContent || '',
+                        url: a.getAttribute('href') || ''
+                    };
+                    children.push(bookmark);
+                }
+            }
+            
+            return children;
+        };
+        
+        // 从根DL开始解析
+        const rootDl = doc.querySelector('dl');
+        if (rootDl) {
+            // 包装成Chrome书签树格式（根节点包含children）
+            return [{
+                children: parseDl(rootDl)
+            }];
+        }
+        
+        return [{ children: [] }];
+    }
+
+    // 从favorites.txt恢复快捷方式
+    async _restoreFromFavoritesTxt(txtData) {
+        try {
+            // 解析favorites.txt文件
+            const shortcuts = this._parseFavoritesTxt(txtData);
+            
+            // 保存到本地存储
+            await this.saveData(STORAGE_KEYS.SHORTCUTS, shortcuts);
+            
+            return { success: true, message: `快捷方式恢复成功，共${shortcuts.length}个` };
+        } catch (error) {
+            throw new Error('快捷方式恢复失败：' + error.message);
+        }
+    }
+
+    // 解析favorites.txt格式的快捷方式
+    _parseFavoritesTxt(txtData) {
+        const shortcuts = [];
+        const lines = txtData.split('\n');
+        
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            
+            try {
+                const item = JSON.parse(trimmedLine);
+                if (item.title && item.url) {
+                    shortcuts.push({
+                        id: Date.now() + Math.random().toString(36).substr(2, 9),
+                        name: item.title,
+                        url: item.url,
+                        iconType: 'default',
+                        customColor: null
+                    });
+                }
+            } catch {
+                // 解析失败，忽略该行
+            }
+        }
+        
+        return shortcuts;
+    }
     
-    // 获取备份列表（包括所有以bookmarks_开头的文件）
+    // 获取备份列表（列出所有文件，排除目录）
     async getBackupFiles() {
         try {
             const backups = [];
@@ -666,20 +807,23 @@ class StorageManager {
             // 只获取WebDAV备份
             if (this.webdavClient) {
                 try {
-                    // 尝试创建AndyTab文件夹（如果不存在）
-                    await this._ensureAndyTabDirectory();
+                    // 获取存储路径并确保目录存在
+                    const storagePath = await this._getStoragePathWithEnsure();
                     
-                    // 列出AndyTab文件夹中的文件
-                    const webdavFiles = await this.webdavClient.listDirectory('AndyTab');
+                    // 列出存储文件夹中的文件
+                    const webdavFiles = await this.webdavClient.listDirectory(storagePath);
                     for (const file of webdavFiles) {
-                        // 获取所有以bookmarks_开头的文件（包括bookmarks_backup、bookmarks_sync等）
-                        if (file.name.startsWith('bookmarks_')) {
-                            backups.push({
-                                name: file.name,
-                                type: 'webdav',
-                                size: file.size || 0
-                            });
+                        // 跳过目录，只列出文件
+                        if (file.isDirectory) {
+                            continue;
                         }
+                        // 列出所有文件，不过滤
+                        backups.push({
+                            name: file.name,
+                            type: 'webdav',
+                            size: file.size || 0,
+                            modified: file.modified
+                        });
                     }
                 } catch (error) {
                     console.error('获取WebDAV备份列表失败：', error);
@@ -696,12 +840,11 @@ class StorageManager {
     // 删除备份
     async deleteBackup(backupName) {
         try {
-            if (!this.webdavClient) {
-                return { success: false, message: 'WebDAV未配置，无法删除备份' };
-            }
+            // 获取存储路径并确保目录存在
+            const storagePath = await this._getStoragePathWithEnsure();
             
-            // 从AndyTab文件夹删除备份文件
-            await this.webdavClient.deleteFile(`AndyTab/${backupName}`);
+            // 从存储文件夹删除备份文件
+            await this.webdavClient.deleteFile(`${storagePath}/${backupName}`);
             
             return { success: true, message: '备份已删除' };
         } catch (error) {
@@ -710,66 +853,26 @@ class StorageManager {
         }
     }
 
-    // 获取最新的同步文件
+    // 获取最新的同步文件（andy_tab_sync.json）
     async getLatestSyncFile() {
         try {
-            if (!this.webdavClient) {
-                return null;
-            }
-
-            // 尝试创建AndyTab文件夹（如果不存在）
-            await this._ensureAndyTabDirectory();
+            // 获取存储路径并确保目录存在
+            const storagePath = await this._getStoragePathWithEnsure();
             
-            // 列出AndyTab文件夹中的文件
-            const webdavFiles = await this.webdavClient.listDirectory('AndyTab');
-            // 过滤出同步文件（支持hyphen或underscore分隔符）
-            const syncFiles = webdavFiles.filter(file => file.name.startsWith('bookmarks_sync'));
+            // 列出存储文件夹中的文件
+            const webdavFiles = await this.webdavClient.listDirectory(storagePath);
             
-            if (syncFiles.length === 0) {
+            // 查找andy_tab_sync.json文件
+            const syncFile = webdavFiles.find(file => file.name === 'andy_tab_sync.json');
+            
+            if (!syncFile) {
                 return null;
             }
             
-            // 按文件名排序，最新的文件名（基于时间戳）会排在最后
-            syncFiles.sort((a, b) => a.name.localeCompare(b.name));
-            
-            // 返回最新的同步文件
-            return syncFiles[syncFiles.length - 1];
+            return syncFile;
         } catch (error) {
             console.error('获取最新同步文件失败：', error);
             return null;
-        }
-    }
-
-    // 删除旧的同步文件（只保留最新的一个）
-    async deleteOldSyncFiles() {
-        try {
-            if (!this.webdavClient) {
-                return;
-            }
-
-            // 尝试创建AndyTab文件夹（如果不存在）
-            await this._ensureAndyTabDirectory();
-            
-            // 列出AndyTab文件夹中的文件
-            const webdavFiles = await this.webdavClient.listDirectory('AndyTab');
-            
-            // 过滤出同步文件（支持hyphen或underscore分隔符）
-            const syncFiles = webdavFiles.filter(file => file.name.startsWith('bookmarks_sync'));
-            
-            if (syncFiles.length <= 1) {
-                return; // 只有0或1个同步文件，无需删除
-            }
-            
-            // 按文件名排序
-            syncFiles.sort((a, b) => a.name.localeCompare(b.name));
-            
-            // 删除除了最新的所有同步文件
-            for (let i = 0; i < syncFiles.length - 1; i++) {
-                await this.webdavClient.deleteFile(`AndyTab/${syncFiles[i].name}`);
-                // console.log('已删除旧同步文件：', syncFiles[i].name);
-            }
-        } catch (error) {
-            console.error('删除旧同步文件失败：', error);
         }
     }
 
@@ -790,39 +893,106 @@ class StorageManager {
         }, 3000);
     }
 
+    // 将快捷方式转换为favorites.txt格式
+    _convertShortcutsToFavoritesTxt(shortcuts) {
+        if (!Array.isArray(shortcuts)) return '';
+        
+        return shortcuts.map((shortcut, index) => {
+            return JSON.stringify({
+                title: shortcut.name || '',
+                url: shortcut.url || '',
+                order: index
+            });
+        }).join('\n');
+    }
+
+    // 将书签转换为bookmarks.html格式（Netscape Bookmark格式）
+    _convertBookmarksToHtml(bookmarks) {
+        const generateBookmarkHtml = (bookmark, level = 0) => {
+            const indent = '    '.repeat(level);
+            
+            if (bookmark.children && bookmark.children.length > 0) {
+                // 文件夹
+                const addDate = bookmark.dateAdded ? Math.floor(bookmark.dateAdded / 1000) : Math.floor(Date.now() / 1000);
+                let html = `${indent}<DT><H3 ADD_DATE="${addDate}">${this._escapeHtml(bookmark.title || '未命名文件夹')}</H3>\n`;
+                html += `${indent}<DL><p>\n`;
+                for (const child of bookmark.children) {
+                    html += generateBookmarkHtml(child, level + 1);
+                }
+                html += `${indent}</DL><p>\n`;
+                return html;
+            } else {
+                // 书签链接
+                const addDate = bookmark.dateAdded ? Math.floor(bookmark.dateAdded / 1000) : Math.floor(Date.now() / 1000);
+                return `${indent}<DT><A HREF="${this._escapeHtml(bookmark.url || '')}" ADD_DATE="${addDate}">${this._escapeHtml(bookmark.title || '')}</A>\n`;
+            }
+        };
+
+        let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+`;
+
+        if (Array.isArray(bookmarks)) {
+            for (const bookmark of bookmarks) {
+                html += generateBookmarkHtml(bookmark, 1);
+            }
+        }
+
+        html += '</DL><p>';
+        return html;
+    }
+
+    // HTML转义辅助函数
+    _escapeHtml(text) {
+        if (!text) return '';
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
     // 上传同步数据到云端
     async uploadSyncData() {
         try {
             if (!this.webdavClient) {
-                // console.log('WebDAV未配置，跳过同步数据上传');
                 return { success: false, message: 'WebDAV未配置，无法上传同步数据' };
             }
 
-            // 获取所有数据
+            // 获取数据
+            const shortcuts = await this.getData(STORAGE_KEYS.SHORTCUTS, []);
+            const bookmarks = await this._getUserBookmarksFromStorage();
             const data = await this.getAllData();
             
-            // 生成同步文件名（使用下划线分隔符，保持与现有文件一致）
-            const timestamp = Date.now();
-            const dateStr = new Date().toISOString().slice(0, 10);
-            const syncFileName = `bookmarks_sync_${dateStr}_${timestamp}.json`;
+            // 获取存储路径并确保目录存在
+            const storagePath = await this._getStoragePathWithEnsure();
             
-            // 尝试创建AndyTab文件夹（如果不存在）
-            await this._ensureAndyTabDirectory();
+            // 1. 上传favorites.txt（快捷方式）
+            const favoritesContent = this._convertShortcutsToFavoritesTxt(shortcuts);
+            await this.webdavClient.putFile(`${storagePath}/favorites.txt`, favoritesContent);
             
-            // 上传到WebDAV的AndyTab文件夹
-            await this.webdavClient.putFile(`AndyTab/${syncFileName}`, JSON.stringify(data, null, 2));
-            console.log('同步数据已上传到云端：', syncFileName);
+            // 2. 上传bookmarks.html（书签）
+            const bookmarksHtml = this._convertBookmarksToHtml(bookmarks);
+            await this.webdavClient.putFile(`${storagePath}/bookmarks.html`, bookmarksHtml);
             
-            // 更新最后同步时间戳
-            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamp);
-            // console.log('已更新同步时间戳：', timestamp);
+            // 3. 上传andy_tab_sync.json（完整数据备份）
+            await this.webdavClient.putFile(`${storagePath}/andy_tab_sync.json`, JSON.stringify(data, null, 2));
             
-            // 删除旧的同步文件
-            await this.deleteOldSyncFiles();
+            // 上传完成后，获取云端文件的实际修改时间作为本地时间戳
+            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/andy_tab_sync.json`);
+            const actualTimestamp = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
             
-            return { success: true, message: '同步数据上传成功', fileName: syncFileName };
+            // 更新最后同步时间戳为云端文件实际修改时间
+            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, actualTimestamp);
+            
+            return { success: true, message: '同步数据上传成功' };
         } catch (error) {
-            console.error('上传同步数据失败：', error);
             return { success: false, message: error.message };
         }
     }
@@ -830,29 +1000,25 @@ class StorageManager {
     // 下载并应用云端同步数据
     async downloadAndApplySyncData(fileName) {
         try {
-            if (!this.webdavClient) {
-                return { success: false, message: 'WebDAV未配置，无法下载同步数据' };
-            }
+            // 获取存储路径（目录已存在，无需再次确保）
+            const storagePath = await this._getStoragePath();
 
             // 从WebDAV下载同步数据
-            const syncDataStr = await this.webdavClient.getFile(`AndyTab/${fileName}`);
+            const syncDataStr = await this.webdavClient.getFile(`${storagePath}/${fileName}`);
             const syncData = JSON.parse(syncDataStr);
             
             // 应用同步数据
             await this.saveAllData(syncData);
             
-            // 从文件名中提取时间戳（支持hyphen或underscore分隔符）
-            const timestampMatch = fileName.match(/[_-]([0-9]+)\.json$/);
-            if (timestampMatch) {
-                const timestamp = parseInt(timestampMatch[1]);
-                // 更新最后同步时间戳
-                await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamp);
-                // console.log('已应用云端同步数据，并更新时间戳：', timestamp);
-            }
+            // 获取云端文件的修改时间作为本地同步时间戳
+            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/${fileName}`);
+            const timestamp = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
+            
+            // 更新最后同步时间戳
+            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamp);
             
             return { success: true, message: '同步数据应用成功' };
         } catch (error) {
-            // console.error('下载并应用同步数据失败：', error);
             return { success: false, message: error.message };
         }
     }

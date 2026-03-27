@@ -72,19 +72,23 @@ class WebDAVClient {
             
             // 检查响应状态
             if (!response.ok) {
-                let errorMessage = `WebDAV请求失败: ${response.status} ${response.statusText}`;
+                const errorInfo = this._classifyError(response.status, response.statusText);
                 
                 // 尝试获取更详细的错误信息
+                let detailMessage = '';
                 try {
                     const errorText = await response.text();
                     if (errorText) {
-                        errorMessage += ` - ${errorText}`;
+                        detailMessage = errorText;
                     }
                 } catch (e) {
                     // 如果无法获取错误文本，忽略
                 }
                 
-                throw new Error(errorMessage);
+                const error = new Error(errorInfo.message + (detailMessage ? ` - ${detailMessage}` : ''));
+                error.type = errorInfo.type;
+                error.status = response.status;
+                throw error;
             }
             
             // 对于204 No Content响应，直接返回null
@@ -105,19 +109,82 @@ class WebDAVClient {
                 clearTimeout(timeoutId);
             }
             
-            // 处理不同类型的错误
+            // 如果错误已经被分类，直接抛出
+            if (error.type) {
+                throw error;
+            }
+            
+            // 处理不同类型的网络错误
             if (error.name === 'AbortError') {
-                throw new Error('WebDAV请求超时');
+                const timeoutError = new Error('请求超时，请检查网络连接或增加超时时间');
+                timeoutError.type = 'TIMEOUT';
+                throw timeoutError;
             } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                throw new Error('网络连接失败，请检查服务器地址和网络连接');
+                const networkError = new Error('网络连接失败，请检查服务器地址和网络连接');
+                networkError.type = 'NETWORK';
+                throw networkError;
             } else if (error.message.includes('CORS')) {
-                throw new Error('CORS跨域请求被拒绝，请检查服务器配置');
+                const corsError = new Error('CORS跨域请求被拒绝，请检查服务器配置');
+                corsError.type = 'CORS';
+                throw corsError;
             } else {
+                error.type = 'UNKNOWN';
                 throw error;
             }
         }
     }
-    
+
+    // 错误分类方法
+    _classifyError(status, statusText) {
+        switch (status) {
+            case 401:
+                return {
+                    type: 'AUTH',
+                    message: '认证失败，请检查用户名和密码'
+                };
+            case 403:
+                return {
+                    type: 'FORBIDDEN',
+                    message: '权限不足，无法访问该资源'
+                };
+            case 404:
+                return {
+                    type: 'NOT_FOUND',
+                    message: '请求的资源不存在'
+                };
+            case 405:
+                return {
+                    type: 'METHOD_NOT_ALLOWED',
+                    message: '服务器不支持该操作，请检查WebDAV是否已启用'
+                };
+            case 409:
+                return {
+                    type: 'CONFLICT',
+                    message: '资源冲突，请检查目录结构'
+                };
+            case 500:
+                return {
+                    type: 'SERVER_ERROR',
+                    message: '服务器内部错误'
+                };
+            case 503:
+                return {
+                    type: 'SERVICE_UNAVAILABLE',
+                    message: '服务不可用，请稍后重试'
+                };
+            case 507:
+                return {
+                    type: 'INSUFFICIENT_STORAGE',
+                    message: '存储空间不足'
+                };
+            default:
+                return {
+                    type: 'HTTP_ERROR',
+                    message: `WebDAV请求失败: ${status} ${statusText}`
+                };
+        }
+    }
+
     // 测试连接
     async testConnection() {
         try {
@@ -202,6 +269,56 @@ class WebDAVClient {
             return false;
         }
     }
+
+    // 获取文件信息（包括修改时间）
+    async getFileInfo(path) {
+        try {
+            const options = this.buildRequestOptions('PROPFIND');
+            options.headers['Depth'] = '0';
+
+            const responseText = await this.sendRequest(path, options);
+
+            // 解析XML响应
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(responseText, 'application/xml');
+            const response = doc.getElementsByTagName('d:response')[0];
+
+            if (!response) {
+                throw new Error('无法获取文件信息');
+            }
+
+            const href = response.getElementsByTagName('d:href')[0]?.textContent || '';
+            const isCollection = response.getElementsByTagName('d:collection').length > 0;
+
+            // 提取修改时间
+            let modified = null;
+            let size = 0;
+            const propstat = response.getElementsByTagName('d:propstat')[0];
+            if (propstat) {
+                const prop = propstat.getElementsByTagName('d:prop')[0];
+                if (prop) {
+                    const modifiedElement = prop.getElementsByTagName('d:getlastmodified')[0];
+                    if (modifiedElement) {
+                        modified = modifiedElement.textContent;
+                    }
+                    const sizeElement = prop.getElementsByTagName('d:getcontentlength')[0];
+                    if (sizeElement) {
+                        size = parseInt(sizeElement.textContent) || 0;
+                    }
+                }
+            }
+
+            return {
+                name: path.split('/').filter(Boolean).pop(),
+                path: href,
+                isDirectory: isCollection,
+                modified: modified,
+                size: size
+            };
+        } catch (error) {
+            throw new Error(`获取文件信息失败: ${error.message}`);
+        }
+    }
     
     // 创建目录
     async createDirectory(path) {
@@ -247,46 +364,31 @@ class WebDAVClient {
             // 提取文件名
             const fileName = href.split('/').filter(Boolean).pop();
             
+            // 提取修改时间
+            let modified = null;
+            const propstat = response[i].getElementsByTagName('d:propstat')[0];
+            if (propstat) {
+                const prop = propstat.getElementsByTagName('d:prop')[0];
+                if (prop) {
+                    const modifiedElement = prop.getElementsByTagName('d:getlastmodified')[0];
+                    if (modifiedElement) {
+                        modified = modifiedElement.textContent;
+                    }
+                }
+            }
+            
             if (fileName) {
                 items.push({
                     name: fileName,
                     path: href,
-                    isDirectory: isCollection
+                    isDirectory: isCollection,
+                    modified: modified
                 });
             }
         }
         
         return items;
     }
-    
-    // 复制文件
-    async copyFile(sourcePath, destinationPath) {
-        try {
-            const options = this.buildRequestOptions('COPY');
-            options.headers['Destination'] = `${this.config.url}${destinationPath}`;
-            options.headers['Overwrite'] = 'T';
-            
-            await this.sendRequest(sourcePath, options);
-            return { success: true, message: '文件复制成功' };
-        } catch (error) {
-            throw new Error(`复制文件失败: ${error.message}`);
-        }
-    }
-    
-    // 移动文件
-    async moveFile(sourcePath, destinationPath) {
-        try {
-            const options = this.buildRequestOptions('MOVE');
-            options.headers['Destination'] = `${this.config.url}${destinationPath}`;
-            options.headers['Overwrite'] = 'T';
-            
-            await this.sendRequest(sourcePath, options);
-            return { success: true, message: '文件移动成功' };
-        } catch (error) {
-            throw new Error(`移动文件失败: ${error.message}`);
-        }
-    }
 }
 
-// 导出WebDAV客户端
 export default WebDAVClient;
