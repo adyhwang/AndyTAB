@@ -697,8 +697,13 @@ class StorageManager {
     // 从bookmarks.html恢复书签（使用合并逻辑，保持原有路径位置）
     async _restoreFromBookmarksHtml(htmlData) {
         try {
-            // 解析HTML书签文件
-            const bookmarks = this._parseBookmarksHtml(htmlData);
+            // 解析HTML书签文件（获取roots下的子元素）
+            const bookmarkRoots = this._parseBookmarksHtml(htmlData);
+            
+            // 将解析的数据包装成Chrome书签树格式（添加roots层级）
+            const bookmarks = [{
+                children: bookmarkRoots
+            }];
             
             // 使用合并逻辑恢复书签（参考_saveAllData中的实现）
             await this._restoreBrowserBookmarks(bookmarks);
@@ -727,7 +732,7 @@ class StorageManager {
                 if (h3 && childDl) {
                     // 文件夹
                     const folder = {
-                        title: h3.textContent || '未命名文件夹',
+                        title: h3.textContent || 'NoNamefolder',
                         children: parseDl(childDl)
                     };
                     children.push(folder);
@@ -756,16 +761,50 @@ class StorageManager {
         return [{ children: [] }];
     }
 
-    // 从favorites.txt恢复快捷方式
+    // 从favorites.txt恢复快捷方式（合并模式）
     async _restoreFromFavoritesTxt(txtData) {
         try {
-            // 解析favorites.txt文件
-            const shortcuts = this._parseFavoritesTxt(txtData);
+            // 解析favorites.txt文件（云端数据）
+            const cloudShortcuts = this._parseFavoritesTxt(txtData);
             
-            // 保存到本地存储
-            await this.saveData(STORAGE_KEYS.SHORTCUTS, shortcuts);
+            // 获取本地现有快捷方式
+            const localShortcuts = await this.getData(STORAGE_KEYS.SHORTCUTS, []);
             
-            return { success: true, message: `快捷方式恢复成功，共${shortcuts.length}个` };
+            // 创建新的合并表
+            const mergedShortcuts = [];
+            const processedLocalUrls = new Set();
+            
+            // 遍历云端数据
+            for (const cloudShortcut of cloudShortcuts) {
+                // 在本地查找相同URL的快捷方式
+                const localIndex = localShortcuts.findIndex(
+                    local => local.url === cloudShortcut.url
+                );
+                
+                if (localIndex !== -1) {
+                    // 1. 本地存在相同URL的快捷方式，使用本地数据（保留原有图标、颜色等设置）
+                    mergedShortcuts.push(localShortcuts[localIndex]);
+                    processedLocalUrls.add(localIndex);
+                } else {
+                    // 2. 本地不存在相同URL的快捷方式，使用云端数据
+                    mergedShortcuts.push(cloudShortcut);
+                }
+            }
+            
+            // 3. 将剩余的本地数据（本地有但云端没有的）插入到新表的最后
+            for (let i = 0; i < localShortcuts.length; i++) {
+                if (!processedLocalUrls.has(i)) {
+                    mergedShortcuts.push(localShortcuts[i]);
+                }
+            }
+            
+            // 保存合并后的数据到本地存储
+            await this.saveData(STORAGE_KEYS.SHORTCUTS, mergedShortcuts);
+            
+            return { 
+                success: true, 
+                message: `快捷方式合并成功，云端${cloudShortcuts.length}个，本地原有${localShortcuts.length}个，合并后${mergedShortcuts.length}个` 
+            };
         } catch (error) {
             throw new Error('快捷方式恢复失败：' + error.message);
         }
@@ -907,14 +946,15 @@ class StorageManager {
     }
 
     // 将书签转换为bookmarks.html格式（Netscape Bookmark格式）
+    // 跳过roots，直接备份roots下的子元素（bookmark_bar, other, synced等）
     _convertBookmarksToHtml(bookmarks) {
         const generateBookmarkHtml = (bookmark, level = 0) => {
             const indent = '    '.repeat(level);
-            
+
             if (bookmark.children && bookmark.children.length > 0) {
                 // 文件夹
                 const addDate = bookmark.dateAdded ? Math.floor(bookmark.dateAdded / 1000) : Math.floor(Date.now() / 1000);
-                let html = `${indent}<DT><H3 ADD_DATE="${addDate}">${this._escapeHtml(bookmark.title || '未命名文件夹')}</H3>\n`;
+                let html = `${indent}<DT><H3 ADD_DATE="${addDate}">${this._escapeHtml(bookmark.title || 'NoNamefolder')}</H3>\n`;
                 html += `${indent}<DL><p>\n`;
                 for (const child of bookmark.children) {
                     html += generateBookmarkHtml(child, level + 1);
@@ -938,8 +978,16 @@ class StorageManager {
 <DL><p>
 `;
 
-        if (Array.isArray(bookmarks)) {
-            for (const bookmark of bookmarks) {
+        // 处理书签数据，跳过roots层级，直接获取其子元素
+        let bookmarkRoots = bookmarks;
+
+        // 如果bookmarks是数组且只有一个元素，且该元素有children（这是Chrome书签树的roots结构）
+        if (Array.isArray(bookmarks) && bookmarks.length === 1 && bookmarks[0].children) {
+            bookmarkRoots = bookmarks[0].children;
+        }
+
+        if (Array.isArray(bookmarkRoots)) {
+            for (const bookmark of bookmarkRoots) {
                 html += generateBookmarkHtml(bookmark, 1);
             }
         }
