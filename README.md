@@ -1,8 +1,7 @@
 # AndyTAB
-自定义新标签页扩展，支持WebDAV数据同步
+自定义新标签页扩展，支持WebDAV数据同步，支持同步Via浏览器的书签
 
-
-![photo (4)](https://github.com/user-attachments/assets/a68f4c49-2b83-445c-852d-efded06a30b1)
-![photo (3)](https://github.com/user-attachments/assets/4d57b800-0c7b-42e4-ac20-b99a8a46060e)
-![photo (2)](https://github.com/user-attachments/assets/f6cc8a20-c005-455a-9ee1-6d080d797a8f)
-![photo (1)](https://github.com/user-attachments/assets/1b89bec9-5423-47a0-bf51-5b3ad813eae4)
+<img width="1278" height="1278" alt="1" src="https://github.com/user-attachments/assets/421189ff-f7da-4edf-a9ea-e50f6f97a7f9" />
+<img width="350" height="1082" alt="4" src="https://github.com/user-attachments/assets/8294d7e9-97ce-4ad8-a009-5af2db8bd5b1" />
+<img width="350" height="947" alt="2" src="https://github.com/user-attachments/assets/4710b78f-63d8-4eff-9683-14056ce92392" />
+<img width="350" height="1268" alt="3" src="https://github.com/user-attachments/assets/e2f1d920-77af-49c3-b9ce-c255b0f1137f" />
