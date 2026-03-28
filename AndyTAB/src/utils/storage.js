@@ -472,18 +472,30 @@ class StorageManager {
                 const importedRoots = bookmarks[0].children;
                 for (const importedRoot of importedRoots) {
                     // 检查导入的根是否有效
-                    if (!importedRoot || !importedRoot.id) {
+                    if (!importedRoot) {
                         continue;
                     }
                     
-                    // 对于所有根文件夹（包括默认和自定义）
-                    if (importedRoot.id === '1' || importedRoot.id === '2' || importedRoot.id === '3') {
-                        // 对于默认根文件夹，合并其子项
+                    // 根据title判断应该合并到哪个根文件夹
+                    // Chrome默认根文件夹：书签栏(id=1)、其他书签(id=2)、移动设备书签(id=3)
+                    let targetId = null;
+                    const title = (importedRoot.title || '').toLowerCase();
+                    
+                    if (importedRoot.id === '1' || title.includes('书签栏') || title.includes('bookmarks bar')) {
+                        targetId = '1';
+                    } else if (importedRoot.id === '2' || title.includes('其他书签') || title.includes('other bookmarks')) {
+                        targetId = '2';
+                    } else if (importedRoot.id === '3' || title.includes('移动设备书签') || title.includes('mobile bookmarks')) {
+                        targetId = '3';
+                    }
+                    
+                    if (targetId) {
+                        // 合并到默认根文件夹
                         if (importedRoot.children && importedRoot.children.length > 0) {
-                            await this._mergeBookmarks(importedRoot.id, importedRoot.children);
+                            await this._mergeBookmarks(targetId, importedRoot.children);
                         }
                     } else {
-                        // 对于自定义根文件夹，检查是否已存在
+                        // 自定义根文件夹，检查是否已存在
                         const exists = await this._bookmarkExists('0', importedRoot.title);
                         if (!exists) {
                             // 自定义根文件夹不存在，创建文件夹及其子项
@@ -714,7 +726,7 @@ class StorageManager {
         }
     }
 
-    // 解析bookmarks.html格式的书签（转换为Chrome书签树格式）
+    // 解析bookmarks.html格式的书签（返回roots下的子元素数组）
     _parseBookmarksHtml(htmlData) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlData, 'text/html');
@@ -749,16 +761,13 @@ class StorageManager {
             return children;
         };
         
-        // 从根DL开始解析
+        // 从根DL开始解析，直接返回子元素数组
         const rootDl = doc.querySelector('dl');
         if (rootDl) {
-            // 包装成Chrome书签树格式（根节点包含children）
-            return [{
-                children: parseDl(rootDl)
-            }];
+            return parseDl(rootDl);
         }
         
-        return [{ children: [] }];
+        return [];
     }
 
     // 从favorites.txt恢复快捷方式（合并模式）
@@ -1032,12 +1041,20 @@ class StorageManager {
             // 3. 上传andy_tab_sync.json（完整数据备份）
             await this.webdavClient.putFile(`${storagePath}/andy_tab_sync.json`, JSON.stringify(data, null, 2));
             
-            // 上传完成后，获取云端文件的实际修改时间作为本地时间戳
-            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/andy_tab_sync.json`);
-            const actualTimestamp = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
+            // 获取3个文件的实际修改时间
+            const [favoritesInfo, bookmarksInfo, syncInfo] = await Promise.all([
+                this.webdavClient.getFileInfo(`${storagePath}/favorites.txt`),
+                this.webdavClient.getFileInfo(`${storagePath}/bookmarks.html`),
+                this.webdavClient.getFileInfo(`${storagePath}/andy_tab_sync.json`)
+            ]);
             
-            // 更新最后同步时间戳为云端文件实际修改时间
-            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, actualTimestamp);
+            // 更新最后同步时间戳（JSON格式，分别记录3个文件）
+            const timestamps = {
+                favorites: favoritesInfo.modified ? new Date(favoritesInfo.modified).getTime() : Date.now(),
+                bookmarks: bookmarksInfo.modified ? new Date(bookmarksInfo.modified).getTime() : Date.now(),
+                sync: syncInfo.modified ? new Date(syncInfo.modified).getTime() : Date.now()
+            };
+            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
             
             return { success: true, message: '同步数据上传成功' };
         } catch (error) {
@@ -1062,10 +1079,122 @@ class StorageManager {
             const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/${fileName}`);
             const timestamp = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
             
-            // 更新最后同步时间戳
-            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamp);
+            // 更新最后同步时间戳（兼容旧格式）
+            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, { sync: timestamp });
             
             return { success: true, message: '同步数据应用成功' };
+        } catch (error) {
+            return { success: false, message: error.message };
+        }
+    }
+
+    // 获取云端文件信息（favorites.txt, bookmarks.html, andy_tab_sync.json）
+    async getCloudFilesInfo() {
+        try {
+            if (!this.webdavClient) {
+                return null;
+            }
+
+            const storagePath = await this._getStoragePathWithEnsure();
+            
+            // 并行获取3个文件的信息
+            const [favoritesInfo, bookmarksInfo, syncInfo] = await Promise.all([
+                this.webdavClient.getFileInfo(`${storagePath}/favorites.txt`).catch(() => null),
+                this.webdavClient.getFileInfo(`${storagePath}/bookmarks.html`).catch(() => null),
+                this.webdavClient.getFileInfo(`${storagePath}/andy_tab_sync.json`).catch(() => null)
+            ]);
+
+            return {
+                favorites: favoritesInfo ? {
+                    exists: true,
+                    modified: favoritesInfo.modified ? new Date(favoritesInfo.modified).getTime() : null
+                } : { exists: false, modified: null },
+                bookmarks: bookmarksInfo ? {
+                    exists: true,
+                    modified: bookmarksInfo.modified ? new Date(bookmarksInfo.modified).getTime() : null
+                } : { exists: false, modified: null },
+                sync: syncInfo ? {
+                    exists: true,
+                    modified: syncInfo.modified ? new Date(syncInfo.modified).getTime() : null
+                } : { exists: false, modified: null }
+            };
+        } catch (error) {
+            console.error('获取云端文件信息失败：', error);
+            return null;
+        }
+    }
+
+    // 下载并应用快捷方式（favorites.txt）
+    async downloadFavorites() {
+        try {
+            if (!this.webdavClient) {
+                return { success: false, message: 'WebDAV未配置' };
+            }
+
+            const storagePath = await this._getStoragePath();
+            const favoritesData = await this.webdavClient.getFile(`${storagePath}/favorites.txt`);
+            
+            // 使用合并模式恢复快捷方式
+            const result = await this._restoreFromFavoritesTxt(favoritesData);
+            
+            // 更新favorites时间戳
+            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/favorites.txt`);
+            const timestamps = await this.getData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, {});
+            timestamps.favorites = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
+            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
+            
+            return { success: true, message: result.message };
+        } catch (error) {
+            return { success: false, message: error.message };
+        }
+    }
+
+    // 下载并应用书签（bookmarks.html）
+    async downloadBookmarks() {
+        try {
+            if (!this.webdavClient) {
+                return { success: false, message: 'WebDAV未配置' };
+            }
+
+            const storagePath = await this._getStoragePath();
+            const bookmarksData = await this.webdavClient.getFile(`${storagePath}/bookmarks.html`);
+            
+            // 使用合并模式恢复书签
+            const result = await this._restoreFromBookmarksHtml(bookmarksData);
+            
+            // 更新bookmarks时间戳
+            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/bookmarks.html`);
+            const timestamps = await this.getData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, {});
+            timestamps.bookmarks = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
+            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
+            
+            return { success: true, message: result.message };
+        } catch (error) {
+            return { success: false, message: error.message };
+        }
+    }
+
+    // 下载并应用完整同步数据（andy_tab_sync.json）
+    async downloadSyncData() {
+        try {
+            if (!this.webdavClient) {
+                return { success: false, message: 'WebDAV未配置' };
+            }
+
+            const storagePath = await this._getStoragePath();
+            const syncDataStr = await this.webdavClient.getFile(`${storagePath}/andy_tab_sync.json`);
+            const syncData = JSON.parse(syncDataStr);
+            
+            // 应用同步数据
+            await this.saveAllData(syncData);
+            
+            // 更新sync时间戳
+            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/andy_tab_sync.json`);
+            const timestamps = await this.getData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, {});
+            timestamps.sync = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
+            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
+            
+            return { success: true, message: '完整数据同步成功' };
         } catch (error) {
             return { success: false, message: error.message };
         }

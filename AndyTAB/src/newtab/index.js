@@ -130,61 +130,102 @@ async function init() {
 // 初始化同步检查
 async function initSyncCheck() {
     try {
-        // 获取本地最后同步时间戳
-        const localLastTimestamp = await storageManager.getData('andy_tab_sync_lasttimestamp', null);
-
-        // 获取云端最新同步文件
-        const latestSyncFile = await storageManager.getLatestSyncFile();
-
-        // 如果没有云端文件，直接返回
-        if (!latestSyncFile) {
+        // 获取云端文件信息
+        const cloudFilesInfo = await storageManager.getCloudFilesInfo();
+        
+        if (!cloudFilesInfo) {
             return;
         }
 
-        // 使用文件的修改时间作为云端时间戳
-        const cloudTimestamp = latestSyncFile.modified ? new Date(latestSyncFile.modified).getTime() : null;
+        // 获取本地最后同步时间戳（JSON格式）
+        const localTimestamps = await storageManager.getData('andy_tab_sync_lasttimestamp', {});
+        
+        // 兼容旧格式：如果是数字，转换为JSON格式
+        const localTs = typeof localTimestamps === 'number' 
+            ? { favorites: localTimestamps, bookmarks: localTimestamps, sync: localTimestamps }
+            : localTimestamps;
 
-        if (!cloudTimestamp) {
-            return;
+        // 容差时间（3秒）
+        const TIME_TOLERANCE = 3000;
+
+        // 记录需要同步的文件
+        const needSync = {
+            favorites: false,
+            bookmarks: false,
+            sync: false
+        };
+
+        // 检查每个文件是否需要同步
+        // favorites.txt
+        if (cloudFilesInfo.favorites.exists && cloudFilesInfo.favorites.modified) {
+            const localFavTs = localTs.favorites || 0;
+            const cloudFavTs = cloudFilesInfo.favorites.modified;
+            if (cloudFavTs - localFavTs > TIME_TOLERANCE) {
+                needSync.favorites = true;
+            }
         }
 
-        // 添加30秒的容差时间，避免由于时间精度问题导致的误判
-        const TIME_TOLERANCE = 3000; // 3秒
+        // bookmarks.html
+        if (cloudFilesInfo.bookmarks.exists && cloudFilesInfo.bookmarks.modified) {
+            const localBmTs = localTs.bookmarks || 0;
+            const cloudBmTs = cloudFilesInfo.bookmarks.modified;
+            if (cloudBmTs - localBmTs > TIME_TOLERANCE) {
+                needSync.bookmarks = true;
+            }
+        }
 
-        // 情况1：本地没有同步记录，检查本地是否有数据
-        if (!localLastTimestamp) {
-            // 检查本地是否有数据
+        // andy_tab_sync.json
+        if (cloudFilesInfo.sync.exists && cloudFilesInfo.sync.modified) {
+            const localSyncTs = localTs.sync || 0;
+            const cloudSyncTs = cloudFilesInfo.sync.modified;
+            if (cloudSyncTs - localSyncTs > TIME_TOLERANCE) {
+                needSync.sync = true;
+            }
+        }
+
+        // 如果没有任何本地同步记录，检查本地是否有数据
+        const hasNoLocalTimestamp = !localTs.favorites && !localTs.bookmarks && !localTs.sync;
+        
+        if (hasNoLocalTimestamp) {
             const localData = await storageManager.getAllData();
             const hasLocalData = localData.shortcuts?.length > 0 || localData.bookmarks?.length > 0;
             
             if (hasLocalData) {
-                // 本地有数据，显示冲突对话框让用户选择
-                showSyncConflictDialog(latestSyncFile.name, 0, cloudTimestamp);
-            } else {
-                // 本地无数据，直接下载云端数据
-                await storageManager.downloadAndApplySyncData(latestSyncFile.name);
-                location.reload();
+                // 本地有数据但无同步记录，显示冲突对话框
+                showSyncConflictDialog('andy_tab_sync.json', 0, cloudFilesInfo.sync.modified || Date.now());
+                return;
             }
-            return;
         }
 
-        // 计算时间差
-        const timeDiff = localLastTimestamp - cloudTimestamp;
+        // 执行同步
+        let needReload = false;
 
-        // 情况2：云端数据较新（本地比云端旧超过容差），下载云端数据
-        if (timeDiff < -TIME_TOLERANCE) {
-            await storageManager.downloadAndApplySyncData(latestSyncFile.name);
+        if (needSync.favorites) {
+            const result = await storageManager.downloadFavorites();
+            if (result.success) {
+                needReload = true;
+            }
+        }
+
+        if (needSync.bookmarks) {
+            const result = await storageManager.downloadBookmarks();
+            if (result.success) {
+                needReload = true;
+            }
+        }
+
+        // 如果完整同步数据较新且需要同步，也下载
+        if (needSync.sync && !needSync.favorites && !needSync.bookmarks) {
+            const result = await storageManager.downloadSyncData();
+            if (result.success) {
+                needReload = true;
+            }
+        }
+
+        // 如果有同步成功，刷新页面
+        if (needReload) {
             location.reload();
-            return;
         }
-
-        // 情况3：本地数据较新（本地比云端新超过容差），显示冲突对话框让用户选择
-        if (timeDiff > TIME_TOLERANCE) {
-            showSyncConflictDialog(latestSyncFile.name, localLastTimestamp, cloudTimestamp);
-            return;
-        }
-
-        // 情况4：时间戳在容差范围内，视为相同，无需同步
 
     } catch (error) {
         console.error('初始化同步检查失败：', error);
@@ -208,10 +249,23 @@ async function updateSyncStatusUI() {
     // 显示同步状态容器
     syncStatusContainer.style.display = 'block';
     
-    // 获取最后同步时间
-    const lastSyncTimestamp = await storageManager.getData('andy_tab_sync_lasttimestamp', null);
-    if (lastSyncTimestamp) {
-        const date = new Date(lastSyncTimestamp);
+    // 获取最后同步时间戳（JSON格式）
+    const lastSyncTimestamps = await storageManager.getData('andy_tab_sync_lasttimestamp', {});
+    
+    // 兼容旧格式
+    const timestamps = typeof lastSyncTimestamps === 'number' 
+        ? { sync: lastSyncTimestamps }
+        : lastSyncTimestamps;
+    
+    // 找到最新的同步时间
+    const latestTimestamp = Math.max(
+        timestamps.favorites || 0,
+        timestamps.bookmarks || 0,
+        timestamps.sync || 0
+    );
+    
+    if (latestTimestamp > 0) {
+        const date = new Date(latestTimestamp);
         const timeStr = date.toLocaleString('zh-CN', {
             year: 'numeric',
             month: '2-digit',
