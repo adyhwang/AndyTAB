@@ -6,7 +6,7 @@
 <img width="350" height="947" alt="2" src="https://github.com/user-attachments/assets/4710b78f-63d8-4eff-9683-14056ce92392" />
 <img width="350" height="1268" alt="3" src="https://github.com/user-attachments/assets/e2f1d920-77af-49c3-b9ce-c255b0f1137f" />
 
-Chrome 安装未上架第三方扩展，主流是 开发者模式加载已解压文件夹（推荐），也可命令行/组策略。
+#Chrome 安装未上架第三方扩展，主流是 开发者模式加载已解压文件夹（推荐），也可命令行/组策略。
  
 一、准备工作
  
