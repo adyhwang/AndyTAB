@@ -1149,7 +1149,7 @@ class StorageManager {
         }
     }
 
-    // 下载并应用书签（bookmarks.html）
+    // 下载并应用书签（bookmarks.html）- 完整覆盖模式
     async downloadBookmarks() {
         try {
             if (!this.webdavClient) {
@@ -1159,8 +1159,39 @@ class StorageManager {
             const storagePath = await this._getStoragePath();
             const bookmarksData = await this.webdavClient.getFile(`${storagePath}/bookmarks.html`);
             
-            // 使用合并模式恢复书签
-            const result = await this._restoreFromBookmarksHtml(bookmarksData);
+            // 解析云端书签数据
+            const bookmarkRoots = this._parseBookmarksHtml(bookmarksData);
+            const bookmarks = [{ children: bookmarkRoots }];
+            
+            // 清空本地书签栏、其他书签、移动设备书签的内容
+            await this._clearFolderContents('1');
+            await this._clearFolderContents('2');
+            await this._clearFolderContents('3');
+            
+            // 删除根目录下的自定义文件夹
+            await new Promise((resolve) => {
+                chrome.bookmarks.getChildren('0', async (children) => {
+                    if (children) {
+                        for (const child of children) {
+                            if (!child.url) {
+                                await new Promise((res) => {
+                                    chrome.bookmarks.removeTree(child.id, res);
+                                });
+                            }
+                        }
+                    }
+                    resolve();
+                });
+            });
+            
+            // 重新导入云端书签
+            await this._restoreBrowserBookmarks(bookmarks);
+            
+            // 更新本地存储的书签数据
+            const updatedBookmarks = await this._getBrowserBookmarks();
+            await chrome.storage.local.set({
+                [STORAGE_KEYS.USER_BOOKMARKS]: updatedBookmarks
+            });
             
             // 更新bookmarks时间戳
             const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/bookmarks.html`);
@@ -1168,7 +1199,7 @@ class StorageManager {
             timestamps.bookmarks = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
             await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
             
-            return { success: true, message: result.message };
+            return { success: true, message: '书签同步成功（完整覆盖）' };
         } catch (error) {
             return { success: false, message: error.message };
         }
