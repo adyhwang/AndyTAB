@@ -311,7 +311,7 @@ class StorageManager {
             todos: await this.getData(STORAGE_KEYS.TODOS, []),
             notes: await this.getData(STORAGE_KEYS.NOTES, ''),
             webdavConfig: await this.getWebDAVConfig(),
-            bookmarks: await this._getUserBookmarksFromStorage()
+            bookmarks: await this._getBrowserBookmarks()
         };
         
         return data;
@@ -731,7 +731,6 @@ class StorageManager {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlData, 'text/html');
         
-        // 递归解析书签结构
         const parseDl = (dlElement) => {
             const children = [];
             const dtElements = dlElement.querySelectorAll(':scope > dt');
@@ -741,19 +740,41 @@ class StorageManager {
                 const a = dt.querySelector(':scope > a');
                 const childDl = dt.querySelector(':scope > dl');
                 
-                if (h3 && childDl) {
-                    // 文件夹
+                if (h3) {
                     const folder = {
-                        title: h3.textContent || 'NoNamefolder',
-                        children: parseDl(childDl)
+                        title: h3.textContent || '未命名文件夹',
+                        children: childDl ? parseDl(childDl) : []
                     };
+                    
+                    const addDate = h3.getAttribute('ADD_DATE');
+                    if (addDate) {
+                        folder.dateAdded = parseInt(addDate) * 1000;
+                    }
+                    const lastModified = h3.getAttribute('LAST_MODIFIED');
+                    if (lastModified && parseInt(lastModified) > 0) {
+                        folder.dateGroupModified = parseInt(lastModified) * 1000;
+                    }
+                    const personalToolbar = h3.getAttribute('PERSONAL_TOOLBAR_FOLDER');
+                    if (personalToolbar === 'true') {
+                        folder.id = '1';
+                    }
+                    
                     children.push(folder);
                 } else if (a) {
-                    // 书签链接
                     const bookmark = {
                         title: a.textContent || '',
                         url: a.getAttribute('href') || ''
                     };
+                    
+                    const addDate = a.getAttribute('ADD_DATE');
+                    if (addDate) {
+                        bookmark.dateAdded = parseInt(addDate) * 1000;
+                    }
+                    const icon = a.getAttribute('ICON');
+                    if (icon) {
+                        bookmark.icon = icon;
+                    }
+                    
                     children.push(bookmark);
                 }
             }
@@ -761,7 +782,6 @@ class StorageManager {
             return children;
         };
         
-        // 从根DL开始解析，直接返回子元素数组
         const rootDl = doc.querySelector('dl');
         if (rootDl) {
             return parseDl(rootDl);
@@ -957,23 +977,37 @@ class StorageManager {
     // 将书签转换为bookmarks.html格式（Netscape Bookmark格式）
     // 跳过roots，直接备份roots下的子元素（bookmark_bar, other, synced等）
     _convertBookmarksToHtml(bookmarks) {
-        const generateBookmarkHtml = (bookmark, level = 0) => {
+        const generateBookmarkHtml = (bookmark, level = 0, isBookmarkBar = false) => {
             const indent = '    '.repeat(level);
 
-            if (bookmark.children && bookmark.children.length > 0) {
-                // 文件夹
+            if (bookmark.children !== undefined) {
                 const addDate = bookmark.dateAdded ? Math.floor(bookmark.dateAdded / 1000) : Math.floor(Date.now() / 1000);
-                let html = `${indent}<DT><H3 ADD_DATE="${addDate}">${this._escapeHtml(bookmark.title || 'NoNamefolder')}</H3>\n`;
+                const lastModified = bookmark.dateGroupModified ? Math.floor(bookmark.dateGroupModified / 1000) : 0;
+                
+                let h3Attrs = `ADD_DATE="${addDate}"`;
+                if (lastModified > 0) {
+                    h3Attrs += ` LAST_MODIFIED="${lastModified}"`;
+                }
+                if (isBookmarkBar) {
+                    h3Attrs += ' PERSONAL_TOOLBAR_FOLDER="true"';
+                }
+                
+                let html = `${indent}<DT><H3 ${h3Attrs}>${this._escapeHtml(bookmark.title || '未命名文件夹')}</H3>\n`;
                 html += `${indent}<DL><p>\n`;
-                for (const child of bookmark.children) {
-                    html += generateBookmarkHtml(child, level + 1);
+                if (bookmark.children && bookmark.children.length > 0) {
+                    for (const child of bookmark.children) {
+                        html += generateBookmarkHtml(child, level + 1);
+                    }
                 }
                 html += `${indent}</DL><p>\n`;
                 return html;
             } else {
-                // 书签链接
                 const addDate = bookmark.dateAdded ? Math.floor(bookmark.dateAdded / 1000) : Math.floor(Date.now() / 1000);
-                return `${indent}<DT><A HREF="${this._escapeHtml(bookmark.url || '')}" ADD_DATE="${addDate}">${this._escapeHtml(bookmark.title || '')}</A>\n`;
+                let aAttrs = `HREF="${this._escapeHtml(bookmark.url || '')}" ADD_DATE="${addDate}"`;
+                if (bookmark.icon) {
+                    aAttrs += ` ICON="${this._escapeHtml(bookmark.icon)}"`;
+                }
+                return `${indent}<DT><A ${aAttrs}>${this._escapeHtml(bookmark.title || '')}</A>\n`;
             }
         };
 
@@ -987,17 +1021,17 @@ class StorageManager {
 <DL><p>
 `;
 
-        // 处理书签数据，跳过roots层级，直接获取其子元素
         let bookmarkRoots = bookmarks;
 
-        // 如果bookmarks是数组且只有一个元素，且该元素有children（这是Chrome书签树的roots结构）
         if (Array.isArray(bookmarks) && bookmarks.length === 1 && bookmarks[0].children) {
             bookmarkRoots = bookmarks[0].children;
         }
 
         if (Array.isArray(bookmarkRoots)) {
             for (const bookmark of bookmarkRoots) {
-                html += generateBookmarkHtml(bookmark, 1);
+                const title = (bookmark.title || '').toLowerCase();
+                const isBookmarkBar = bookmark.id === '1' || title.includes('书签栏') || title.includes('bookmarks bar');
+                html += generateBookmarkHtml(bookmark, 1, isBookmarkBar);
             }
         }
 
@@ -1022,9 +1056,8 @@ class StorageManager {
                 return { success: false, message: 'WebDAV未配置，无法上传同步数据' };
             }
 
-            // 获取数据
             const shortcuts = await this.getData(STORAGE_KEYS.SHORTCUTS, []);
-            const bookmarks = await this._getUserBookmarksFromStorage();
+            const bookmarks = await this._getBrowserBookmarks();
             const data = await this.getAllData();
             
             // 获取存储路径并确保目录存在
@@ -1134,14 +1167,9 @@ class StorageManager {
             const storagePath = await this._getStoragePath();
             const favoritesData = await this.webdavClient.getFile(`${storagePath}/favorites.txt`);
             
-            // 使用合并模式恢复快捷方式
             const result = await this._restoreFromFavoritesTxt(favoritesData);
             
-            // 更新favorites时间戳
-            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/favorites.txt`);
-            const timestamps = await this.getData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, {});
-            timestamps.favorites = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
-            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
+            await this.updateSyncTimestamp('favorites');
             
             return { success: true, message: result.message };
         } catch (error) {
@@ -1149,7 +1177,7 @@ class StorageManager {
         }
     }
 
-    // 下载并应用书签（bookmarks.html）- 完整覆盖模式
+    // 下载并应用书签（bookmarks.html）
     async downloadBookmarks() {
         try {
             if (!this.webdavClient) {
@@ -1159,47 +1187,11 @@ class StorageManager {
             const storagePath = await this._getStoragePath();
             const bookmarksData = await this.webdavClient.getFile(`${storagePath}/bookmarks.html`);
             
-            // 解析云端书签数据
-            const bookmarkRoots = this._parseBookmarksHtml(bookmarksData);
-            const bookmarks = [{ children: bookmarkRoots }];
+            const result = await this._restoreFromBookmarksHtml(bookmarksData);
             
-            // 清空本地书签栏、其他书签、移动设备书签的内容
-            await this._clearFolderContents('1');
-            await this._clearFolderContents('2');
-            await this._clearFolderContents('3');
+            await this.updateSyncTimestamp('bookmarks');
             
-            // 删除根目录下的自定义文件夹
-            await new Promise((resolve) => {
-                chrome.bookmarks.getChildren('0', async (children) => {
-                    if (children) {
-                        for (const child of children) {
-                            if (!child.url) {
-                                await new Promise((res) => {
-                                    chrome.bookmarks.removeTree(child.id, res);
-                                });
-                            }
-                        }
-                    }
-                    resolve();
-                });
-            });
-            
-            // 重新导入云端书签
-            await this._restoreBrowserBookmarks(bookmarks);
-            
-            // 更新本地存储的书签数据
-            const updatedBookmarks = await this._getBrowserBookmarks();
-            await chrome.storage.local.set({
-                [STORAGE_KEYS.USER_BOOKMARKS]: updatedBookmarks
-            });
-            
-            // 更新bookmarks时间戳
-            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/bookmarks.html`);
-            const timestamps = await this.getData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, {});
-            timestamps.bookmarks = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
-            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
-            
-            return { success: true, message: '书签同步成功（完整覆盖）' };
+            return { success: true, message: result.message };
         } catch (error) {
             return { success: false, message: error.message };
         }
@@ -1216,19 +1208,27 @@ class StorageManager {
             const syncDataStr = await this.webdavClient.getFile(`${storagePath}/andy_tab_sync.json`);
             const syncData = JSON.parse(syncDataStr);
             
-            // 应用同步数据
             await this.saveAllData(syncData);
             
-            // 更新sync时间戳
-            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/andy_tab_sync.json`);
-            const timestamps = await this.getData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, {});
-            timestamps.sync = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
-            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
+            await this.updateSyncTimestamp('sync');
             
             return { success: true, message: '完整数据同步成功' };
         } catch (error) {
             return { success: false, message: error.message };
         }
+    }
+
+    async updateSyncTimestamp(fileType) {
+        const fileNames = {
+            favorites: 'favorites.txt',
+            bookmarks: 'bookmarks.html',
+            sync: 'andy_tab_sync.json'
+        };
+        const storagePath = await this._getStoragePath();
+        const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/${fileNames[fileType]}`);
+        const timestamps = await this.getData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, {});
+        timestamps[fileType] = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
+        await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
     }
 }
 

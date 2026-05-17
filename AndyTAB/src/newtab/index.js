@@ -130,33 +130,26 @@ async function init() {
 // 初始化同步检查
 async function initSyncCheck() {
     try {
-        // 获取云端文件信息
         const cloudFilesInfo = await storageManager.getCloudFilesInfo();
         
         if (!cloudFilesInfo) {
             return;
         }
 
-        // 获取本地最后同步时间戳（JSON格式）
         const localTimestamps = await storageManager.getData('andy_tab_sync_lasttimestamp', {});
         
-        // 兼容旧格式：如果是数字，转换为JSON格式
         const localTs = typeof localTimestamps === 'number' 
             ? { favorites: localTimestamps, bookmarks: localTimestamps, sync: localTimestamps }
             : localTimestamps;
 
-        // 容差时间（3秒）
         const TIME_TOLERANCE = 3000;
 
-        // 记录需要同步的文件
         const needSync = {
             favorites: false,
             bookmarks: false,
             sync: false
         };
 
-        // 检查每个文件是否需要同步
-        // favorites.txt
         if (cloudFilesInfo.favorites.exists && cloudFilesInfo.favorites.modified) {
             const localFavTs = localTs.favorites || 0;
             const cloudFavTs = cloudFilesInfo.favorites.modified;
@@ -165,7 +158,6 @@ async function initSyncCheck() {
             }
         }
 
-        // bookmarks.html
         if (cloudFilesInfo.bookmarks.exists && cloudFilesInfo.bookmarks.modified) {
             const localBmTs = localTs.bookmarks || 0;
             const cloudBmTs = cloudFilesInfo.bookmarks.modified;
@@ -174,7 +166,6 @@ async function initSyncCheck() {
             }
         }
 
-        // andy_tab_sync.json
         if (cloudFilesInfo.sync.exists && cloudFilesInfo.sync.modified) {
             const localSyncTs = localTs.sync || 0;
             const cloudSyncTs = cloudFilesInfo.sync.modified;
@@ -183,49 +174,20 @@ async function initSyncCheck() {
             }
         }
 
-        // 如果没有任何本地同步记录，检查本地是否有数据
+        const syncCount = Object.values(needSync).filter(Boolean).length;
+        if (syncCount === 0) {
+            return;
+        }
+
         const hasNoLocalTimestamp = !localTs.favorites && !localTs.bookmarks && !localTs.sync;
+        let hasLocalData = false;
         
         if (hasNoLocalTimestamp) {
             const localData = await storageManager.getAllData();
-            const hasLocalData = localData.shortcuts?.length > 0 || localData.bookmarks?.length > 0;
-            
-            if (hasLocalData) {
-                // 本地有数据但无同步记录，显示冲突对话框
-                showSyncConflictDialog('andy_tab_sync.json', 0, cloudFilesInfo.sync.modified || Date.now());
-                return;
-            }
+            hasLocalData = localData.shortcuts?.length > 0 || localData.bookmarks?.length > 0;
         }
 
-        // 执行同步
-        let needReload = false;
-
-        if (needSync.favorites) {
-            const result = await storageManager.downloadFavorites();
-            if (result.success) {
-                needReload = true;
-            }
-        }
-
-        if (needSync.bookmarks) {
-            const result = await storageManager.downloadBookmarks();
-            if (result.success) {
-                needReload = true;
-            }
-        }
-
-        // 如果完整同步数据较新且需要同步，也下载
-        if (needSync.sync && !needSync.favorites && !needSync.bookmarks) {
-            const result = await storageManager.downloadSyncData();
-            if (result.success) {
-                needReload = true;
-            }
-        }
-
-        // 如果有同步成功，刷新页面
-        if (needReload) {
-            location.reload();
-        }
+        showSyncConflictDialog(needSync, hasLocalData);
 
     } catch (error) {
         console.error('初始化同步检查失败：', error);
@@ -343,8 +305,19 @@ async function handleManualSync() {
 }
 
 // 显示同步冲突对话框
-function showSyncConflictDialog(cloudFileName, localTimestamp, cloudTimestamp) {
-    // 创建对话框元素
+function showSyncConflictDialog(needSync, hasLocalData) {
+    const syncFileNames = {
+        favorites: '快捷方式 (favorites.txt)',
+        bookmarks: '书签 (bookmarks.html)',
+        sync: '完整数据 (andy_tab_sync.json)'
+    };
+    
+    const diffFiles = Object.entries(needSync)
+        .filter(([, need]) => need)
+        .map(([key]) => syncFileNames[key]);
+    
+    const diffCount = diffFiles.length;
+
     const dialog = document.createElement('div');
     dialog.className = 'sync-conflict-dialog';
     dialog.style.cssText = `
@@ -361,7 +334,6 @@ function showSyncConflictDialog(cloudFileName, localTimestamp, cloudTimestamp) {
         font-family: Arial, sans-serif;
     `;
     
-    // 创建对话框内容
     const dialogContent = document.createElement('div');
     dialogContent.style.cssText = `
         background-color: white;
@@ -372,7 +344,6 @@ function showSyncConflictDialog(cloudFileName, localTimestamp, cloudTimestamp) {
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     `;
     
-    // 创建标题
     const title = document.createElement('h2');
     title.textContent = '检测到数据不一致';
     title.style.cssText = `
@@ -383,31 +354,50 @@ function showSyncConflictDialog(cloudFileName, localTimestamp, cloudTimestamp) {
     `;
     dialogContent.appendChild(title);
     
-    // 创建提示文本
     const message = document.createElement('p');
-    message.textContent = '检测到云端数据和本地数据不一致，请选择操作：';
+    message.textContent = `检测到 ${diffCount} 个文件与云端不同：`;
     message.style.cssText = `
-        margin-bottom: 20px;
+        margin-bottom: 12px;
         color: #666;
         line-height: 1.5;
     `;
     dialogContent.appendChild(message);
     
-    // 创建选项容器
+    const fileList = document.createElement('ul');
+    fileList.style.cssText = `
+        margin: 0 0 20px 20px;
+        padding: 0;
+        color: #e65100;
+        font-size: 14px;
+        line-height: 1.8;
+    `;
+    diffFiles.forEach(name => {
+        const li = document.createElement('li');
+        li.textContent = name;
+        fileList.appendChild(li);
+    });
+    dialogContent.appendChild(fileList);
+    
+    const hint = document.createElement('p');
+    hint.textContent = '请选择操作：';
+    hint.style.cssText = `
+        margin-bottom: 16px;
+        color: #666;
+    `;
+    dialogContent.appendChild(hint);
+    
     const optionsContainer = document.createElement('div');
     optionsContainer.style.cssText = `
         margin-bottom: 24px;
     `;
     
-    // 创建单选按钮组
     const options = [
-        { id: 'use-local', label: '使用本地数据', value: 'local' },
-        { id: 'use-cloud', label: '使用云端数据', value: 'cloud' },
+        { id: 'use-local', label: '使用本地数据（上传覆盖云端）', value: 'local' },
+        { id: 'use-cloud', label: '使用云端数据（下载覆盖本地）', value: 'cloud' },
         { id: 'merge-data', label: '合并本地和云端数据', value: 'merge' }
     ];
     
-    // 存储选中的值
-    let selectedOption = 'local';
+    let selectedOption = hasLocalData ? 'local' : 'cloud';
     
     options.forEach(option => {
         const optionDiv = document.createElement('div');
@@ -446,7 +436,6 @@ function showSyncConflictDialog(cloudFileName, localTimestamp, cloudTimestamp) {
     
     dialogContent.appendChild(optionsContainer);
     
-    // 创建按钮容器
     const buttonContainer = document.createElement('div');
     buttonContainer.style.cssText = `
         display: flex;
@@ -454,7 +443,6 @@ function showSyncConflictDialog(cloudFileName, localTimestamp, cloudTimestamp) {
         gap: 12px;
     `;
     
-    // 创建确定按钮
     const confirmButton = document.createElement('button');
     confirmButton.textContent = '确定';
     confirmButton.style.cssText = `
@@ -469,60 +457,46 @@ function showSyncConflictDialog(cloudFileName, localTimestamp, cloudTimestamp) {
     `;
     
     confirmButton.addEventListener('click', async () => {
-        try {            
+        confirmButton.disabled = true;
+        confirmButton.textContent = '处理中...';
+        
+        try {
             switch (selectedOption) {
                 case 'local':
-                    // 使用本地数据，上传到云端覆盖
                     await storageManager.uploadSyncData();
                     break;
                     
                 case 'cloud':
-                    // 使用云端数据，下载并覆盖本地
-                    await storageManager.downloadAndApplySyncData(cloudFileName);
-                    // 重新加载页面以应用新数据
+                    await batchDownload(needSync);
                     location.reload();
-                    break;
+                    return;
                     
                 case 'merge':
-                    // 合并数据（简单合并：云端数据为主，本地数据为辅）
-                    // 先下载云端数据
-                    const cloudDataStr = await storageManager.webdavClient.getFile(`AndyTab/${cloudFileName}`);
-                    const cloudData = JSON.parse(cloudDataStr);
-                    
-                    // 获取本地数据
-                    const localData = await storageManager.getAllData();
-                    
-                    // 合并数据（云端数据为主，本地数据为辅）
-                    const mergedData = {
-                        // 快捷方式：合并并去重
-                        shortcuts: [...new Map([...cloudData.shortcuts, ...localData.shortcuts].map(item => [item.url, item])).values()],
-                        // 设置：云端优先
-                        settings: { ...localData.settings, ...cloudData.settings },
-                        // 搜索引擎：云端优先
-                        searchEngines: { ...localData.searchEngines, ...cloudData.searchEngines },
-                        // 待办事项：合并并去重
-                        todos: [...new Map([...cloudData.todos, ...localData.todos].map(item => [item.id, item])).values()],
-                        // 笔记：云端优先
-                        notes: cloudData.notes || localData.notes
-                    };
-                    
-                    // 保存合并后的数据
-                    await storageManager.saveAllData(mergedData);
-                    
-                    // 上传到云端
+                    if (needSync.favorites) {
+                        await storageManager.downloadFavorites();
+                    }
+                    if (needSync.bookmarks) {
+                        await storageManager.downloadBookmarks();
+                    }
+                    if (needSync.sync) {
+                        if (!needSync.favorites && !needSync.bookmarks) {
+                            await storageManager.downloadSyncData();
+                        } else {
+                            await storageManager.updateSyncTimestamp('sync');
+                        }
+                    }
                     await storageManager.uploadSyncData();
-                    
-                    // 重新加载页面以应用新数据
                     location.reload();
-                    break;
+                    return;
             }
             
-            // 关闭对话框
             dialog.remove();
             
         } catch (error) {
             console.error('处理同步冲突失败：', error);
             alert('处理同步冲突失败：' + error.message);
+            confirmButton.disabled = false;
+            confirmButton.textContent = '确定';
         }
     });
     
@@ -531,6 +505,22 @@ function showSyncConflictDialog(cloudFileName, localTimestamp, cloudTimestamp) {
     
     dialog.appendChild(dialogContent);
     document.body.appendChild(dialog);
+}
+
+async function batchDownload(needSync) {
+    if (needSync.favorites) {
+        await storageManager.downloadFavorites();
+    }
+    if (needSync.bookmarks) {
+        await storageManager.downloadBookmarks();
+    }
+    if (needSync.sync) {
+        if (!needSync.favorites && !needSync.bookmarks) {
+            await storageManager.downloadSyncData();
+        } else {
+            await storageManager.updateSyncTimestamp('sync');
+        }
+    }
 }
 
 // 加载并应用设置
