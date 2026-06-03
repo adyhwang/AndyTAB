@@ -467,16 +467,16 @@ function showSyncConflictDialog(needSync, hasLocalData) {
                     break;
                     
                 case 'cloud':
-                    await batchDownload(needSync);
+                    await batchDownload(needSync, 'overwrite');
                     location.reload();
                     return;
                     
                 case 'merge':
                     if (needSync.favorites) {
-                        await storageManager.downloadFavorites();
+                        await storageManager.downloadFavorites('merge');
                     }
                     if (needSync.bookmarks) {
-                        await storageManager.downloadBookmarks();
+                        await storageManager.downloadBookmarks('merge');
                     }
                     if (needSync.sync) {
                         if (!needSync.favorites && !needSync.bookmarks) {
@@ -507,16 +507,17 @@ function showSyncConflictDialog(needSync, hasLocalData) {
     document.body.appendChild(dialog);
 }
 
-async function batchDownload(needSync) {
+async function batchDownload(needSync, mode = 'overwrite') {
     if (needSync.favorites) {
-        await storageManager.downloadFavorites();
+        await storageManager.downloadFavorites(mode);
     }
     if (needSync.bookmarks) {
-        await storageManager.downloadBookmarks();
+        await storageManager.downloadBookmarks(mode);
     }
     if (needSync.sync) {
         if (!needSync.favorites && !needSync.bookmarks) {
-            await storageManager.downloadSyncData();
+            // 单独下载 sync 文件时，根据 mode 决定合并/覆盖
+            await storageManager.downloadSyncData(mode);
         } else {
             await storageManager.updateSyncTimestamp('sync');
         }

@@ -20,17 +20,21 @@ class StorageManager {
         this.webdavClient = null;
         this.offlineCache = new Map();
         this.syncDebounceTimer = null;
+        this._syncInProgress = false;
     }
     
     // 初始化用户书签
     async _initUserBookmarks() {
         try {
-            // 获取浏览器书签
             const bookmarks = await this._getBrowserBookmarks();
-            // 保存到本地存储
-            await chrome.storage.local.set({
-                [STORAGE_KEYS.USER_BOOKMARKS]: bookmarks
-            });
+            this._syncInProgress = true;
+            try {
+                await chrome.storage.local.set({
+                    [STORAGE_KEYS.USER_BOOKMARKS]: bookmarks
+                });
+            } finally {
+                this._syncInProgress = false;
+            }
         } catch (error) {
             console.error('初始化用户书签失败：', error);
         }
@@ -42,6 +46,11 @@ class StorageManager {
         let bookmarkChangeTimer = null;
         
         const handleBookmarkChange = async () => {
+            // 合并或恢复书签期间，不触发自动上传
+            if (this._syncInProgress) {
+                return;
+            }
+            
             // 清除之前的定时器
             if (bookmarkChangeTimer) {
                 clearTimeout(bookmarkChangeTimer);
@@ -50,8 +59,9 @@ class StorageManager {
             // 设置新的定时器，延迟500ms执行
             bookmarkChangeTimer = setTimeout(async () => {
                 try {
+                    // _initUserBookmarks 会同步设置 USER_BOOKMARKS，并使用标志位防止 chrome.storage.onChanged 触发上传
                     await this._initUserBookmarks();
-                    // 触发同步
+                    // 此处直接触发上传（不会因 _initUserBookmarks 的 set 而重复触发）
                     await this.uploadSyncDataWithDebounce();
                 } catch (error) {
                     console.error('处理书签变化失败：', error);
@@ -65,22 +75,18 @@ class StorageManager {
         // 监听书签删除
         chrome.bookmarks.onRemoved.addListener(handleBookmarkChange);
         
-        // 监听书签更改
+        // 监听书签更改/重命名
         chrome.bookmarks.onChanged.addListener(handleBookmarkChange);
         
         // 监听书签移动
         chrome.bookmarks.onMoved.addListener(handleBookmarkChange);
-        
-        // 监听书签重命名
-        chrome.bookmarks.onChanged.addListener(handleBookmarkChange);
     }
     
     // 监听存储变化
     _listenStorageChanges() {
         chrome.storage.onChanged.addListener(async (changes, areaName) => {
-            // 监听 user_bookmarks 变化
-            if (areaName === 'local' && changes[STORAGE_KEYS.USER_BOOKMARKS]) {
-                // 触发同步
+            // 仅在 syncInProgress 标志为 false 时触发同步（避免 _initUserBookmarks 引起的循环上传）
+            if (areaName === 'local' && changes[STORAGE_KEYS.USER_BOOKMARKS] && !this._syncInProgress) {
                 await this.uploadSyncDataWithDebounce();
             }
         });
@@ -88,12 +94,19 @@ class StorageManager {
     
     // 初始化
     async init() {
-        // 并行执行离线缓存加载和存储数据初始化，提高速度
-        await Promise.all([
-            this.loadOfflineCache(),
-            this.initStorageData(),
-            this._initUserBookmarks()
-        ]);
+        // 标记初始化期间，防止 onChanged 误触发上传
+        this._syncInProgress = true;
+        
+        try {
+            // 并行执行离线缓存加载和存储数据初始化，提高速度
+            await Promise.all([
+                this.loadOfflineCache(),
+                this.initStorageData(),
+                this._initUserBookmarks()
+            ]);
+        } finally {
+            this._syncInProgress = false;
+        }
         
         // 初始化WebDAV客户端（如果配置存在）
         await this.initWebDAVClient();
@@ -291,16 +304,8 @@ class StorageManager {
         });
     }
     
-    // 从本地存储获取用户书签
-    async _getUserBookmarksFromStorage() {
-        try {
-            const result = await chrome.storage.local.get([STORAGE_KEYS.USER_BOOKMARKS]);
-            return result[STORAGE_KEYS.USER_BOOKMARKS] || await this._getBrowserBookmarks();
-        } catch (error) {
-            console.error('从本地存储获取用户书签失败：', error);
-            return await this._getBrowserBookmarks();
-        }
-    }
+    // 从本地存储获取用户书签（已废弃，移除以避免使用过期缓存）
+    // 如需获取书签，直接调用 _getBrowserBookmarks() 从 chrome API 实时获取
     
     // 获取所有数据（用于备份）
     async getAllData() {
@@ -464,81 +469,137 @@ class StorageManager {
         }
     }
     
-    // 恢复浏览器书签（合并收藏夹）
-    async _restoreBrowserBookmarks(bookmarks) {
+    // 恢复浏览器书签
+    // mode: 'merge' (合并模式，保留本地数据) | 'overwrite' (覆盖模式，删除本地独有数据)
+    async _restoreBrowserBookmarks(bookmarks, mode = 'merge') {
         try {
-            // 如果提供的书签数据包含默认根文件夹，则使用它们
-            if (bookmarks && bookmarks.length > 0 && bookmarks[0] && bookmarks[0].children) {
-                const importedRoots = bookmarks[0].children;
-                for (const importedRoot of importedRoots) {
-                    // 检查导入的根是否有效
-                    if (!importedRoot) {
-                        continue;
-                    }
-                    
-                    // 根据title判断应该合并到哪个根文件夹
-                    // Chrome默认根文件夹：书签栏(id=1)、其他书签(id=2)、移动设备书签(id=3)
-                    let targetId = null;
-                    const title = (importedRoot.title || '').toLowerCase();
-                    
-                    if (importedRoot.id === '1' || title.includes('书签栏') || title.includes('bookmarks bar')) {
-                        targetId = '1';
-                    } else if (importedRoot.id === '2' || title.includes('其他书签') || title.includes('other bookmarks')) {
-                        targetId = '2';
-                    } else if (importedRoot.id === '3' || title.includes('移动设备书签') || title.includes('mobile bookmarks')) {
-                        targetId = '3';
-                    }
-                    
-                    if (targetId) {
-                        // 合并到默认根文件夹
-                        if (importedRoot.children && importedRoot.children.length > 0) {
-                            await this._mergeBookmarks(targetId, importedRoot.children);
+            // 临时禁用书签变化监听器，避免合并时创建的书签触发自动上传
+            const wasSyncInProgress = this._syncInProgress;
+            this._syncInProgress = true;
+            
+            try {
+                if (bookmarks && bookmarks.length > 0 && bookmarks[0] && bookmarks[0].children) {
+                    const importedRoots = bookmarks[0].children;
+                    for (const importedRoot of importedRoots) {
+                        if (!importedRoot) {
+                            continue;
                         }
-                    } else {
-                        // 自定义根文件夹，检查是否已存在
-                        const exists = await this._bookmarkExists('0', importedRoot.title);
-                        if (!exists) {
-                            // 自定义根文件夹不存在，创建文件夹及其子项
-                            await new Promise((resolve) => {
-                                const bookmarkData = {
-                                    parentId: '0',
-                                    title: importedRoot.title
-                                };
-                                
-                                chrome.bookmarks.create(bookmarkData, async (createdFolder) => {
-                                    if (createdFolder && importedRoot.children && importedRoot.children.length > 0) {
-                                        // 递归合并子书签
-                                        await this._mergeBookmarks(createdFolder.id, importedRoot.children);
-                                    }
-                                    resolve();
-                                });
-                            });
+                        
+                        // 根据title判断应该合并到哪个根文件夹
+                        // Chrome默认根文件夹：书签栏(id=1)、其他书签(id=2)、移动设备书签(id=3)
+                        let targetId = null;
+                        const title = (importedRoot.title || '').toLowerCase();
+                        
+                        if (importedRoot.id === '1' || title.includes('书签栏') || title.includes('bookmarks bar')) {
+                            targetId = '1';
+                        } else if (importedRoot.id === '2' || title.includes('其他书签') || title.includes('other bookmarks')) {
+                            targetId = '2';
+                        } else if (importedRoot.id === '3' || title.includes('移动设备书签') || title.includes('mobile bookmarks')) {
+                            targetId = '3';
+                        }
+                        
+                        if (targetId) {
+                            // 默认根文件夹
+                            if (mode === 'overwrite') {
+                                // 覆盖模式：清空本地子项后重新创建
+                                await this._replaceFolderChildren(targetId, importedRoot.children || []);
+                            } else {
+                                // 合并模式
+                                if (importedRoot.children && importedRoot.children.length > 0) {
+                                    await this._mergeBookmarks(targetId, importedRoot.children);
+                                }
+                            }
                         } else {
-                            // 自定义根文件夹已存在，合并其子项
-                            await new Promise((resolve) => {
-                                chrome.bookmarks.getChildren('0', async (children) => {
-                                    const existingFolder = children.find(child => 
-                                        child.title === importedRoot.title && !child.url
-                                    );
+                            // 自定义根文件夹
+                            const exists = await this._bookmarkExists('0', importedRoot.title);
+                            if (!exists) {
+                                // 自定义根文件夹不存在，创建文件夹及其子项
+                                const createdFolderId = await new Promise((resolve) => {
+                                    const bookmarkData = {
+                                        parentId: '0',
+                                        title: importedRoot.title
+                                    };
                                     
-                                    if (existingFolder && importedRoot.children && importedRoot.children.length > 0) {
-                                        // 递归合并子书签
-                                        await this._mergeBookmarks(existingFolder.id, importedRoot.children);
-                                    }
-                                    resolve();
+                                    chrome.bookmarks.create(bookmarkData, (createdFolder) => {
+                                        resolve(createdFolder ? createdFolder.id : null);
+                                    });
                                 });
-                            });
+                                
+                                if (createdFolderId && importedRoot.children && importedRoot.children.length > 0) {
+                                    await this._mergeBookmarks(createdFolderId, importedRoot.children);
+                                }
+                            } else {
+                                // 自定义根文件夹已存在
+                                const existingFolder = await new Promise((resolve) => {
+                                    chrome.bookmarks.getChildren('0', (children) => {
+                                        const folder = children ? children.find(child => 
+                                            child.title === importedRoot.title && !child.url
+                                        ) : null;
+                                        resolve(folder);
+                                    });
+                                });
+                                
+                                if (existingFolder) {
+                                    if (mode === 'overwrite') {
+                                        await this._replaceFolderChildren(existingFolder.id, importedRoot.children || []);
+                                    } else {
+                                        if (importedRoot.children && importedRoot.children.length > 0) {
+                                            await this._mergeBookmarks(existingFolder.id, importedRoot.children);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+            } finally {
+                this._syncInProgress = wasSyncInProgress;
             }
         } catch (error) {
             console.error('恢复浏览器书签失败：', error);
         }
     }
     
+    // 覆盖文件夹子项：先删除本地子项，再添加云端子项
+    async _replaceFolderChildren(parentId, newChildren) {
+        // 1. 删除当前所有子项
+        await new Promise((resolve) => {
+            chrome.bookmarks.getChildren(parentId, async (children) => {
+                if (children && children.length > 0) {
+                    for (const child of children) {
+                        await new Promise((res) => {
+                            chrome.bookmarks.removeTree(child.id, res);
+                        });
+                    }
+                }
+                resolve();
+            });
+        });
+        
+        // 2. 递归创建新的子项
+        for (const child of newChildren) {
+            if (!child || !child.title) continue;
+            
+            const childId = await new Promise((resolve) => {
+                const bookmarkData = { parentId, title: child.title };
+                if (child.url) {
+                    bookmarkData.url = child.url;
+                }
+                chrome.bookmarks.create(bookmarkData, (created) => {
+                    resolve(created ? created.id : null);
+                });
+            });
+            
+            if (childId && child.children && child.children.length > 0) {
+                await this._replaceFolderChildren(childId, child.children);
+            }
+        }
+    }
+    
     // 保存所有数据（用于备份）
-    async saveAllData(data) {
+    // 保存所有数据（用于备份/恢复）
+    // mode: 'merge' (合并模式，保留本地数据) | 'overwrite' (覆盖模式，删除本地独有数据)
+    async saveAllData(data, mode = 'merge') {
         
         try {
             if (data.shortcuts) {
@@ -566,12 +627,15 @@ class StorageManager {
             }
             
             if (data.bookmarks) {
-                // 保存到本地存储
-                await chrome.storage.local.set({
-                    [STORAGE_KEYS.USER_BOOKMARKS]: data.bookmarks
-                });
-                // 恢复到浏览器
-                await this._restoreBrowserBookmarks(data.bookmarks);
+                // 覆盖模式：仅在 overwrite 模式下写入 USER_BOOKMARKS 缓存（保证和浏览器一致）
+                // 合并模式：避免覆盖 USER_BOOKMARKS 缓存，让 _initUserBookmarks 在书签变化时再更新
+                if (mode === 'overwrite') {
+                    await chrome.storage.local.set({
+                        [STORAGE_KEYS.USER_BOOKMARKS]: data.bookmarks
+                    });
+                }
+                // 恢复到浏览器（根据 mode 决定是合并还是覆盖）
+                await this._restoreBrowserBookmarks(data.bookmarks, mode);
             }
         } finally {
         }
@@ -706,21 +770,19 @@ class StorageManager {
         }
     }
 
-    // 从bookmarks.html恢复书签（使用合并逻辑，保持原有路径位置）
-    async _restoreFromBookmarksHtml(htmlData) {
+    // 从bookmarks.html恢复书签
+    // mode: 'merge' (合并模式，保留本地数据) | 'overwrite' (覆盖模式，删除本地独有数据)
+    async _restoreFromBookmarksHtml(htmlData, mode = 'merge') {
         try {
-            // 解析HTML书签文件（获取roots下的子元素）
             const bookmarkRoots = this._parseBookmarksHtml(htmlData);
             
-            // 将解析的数据包装成Chrome书签树格式（添加roots层级）
             const bookmarks = [{
                 children: bookmarkRoots
             }];
             
-            // 使用合并逻辑恢复书签（参考_saveAllData中的实现）
-            await this._restoreBrowserBookmarks(bookmarks);
+            await this._restoreBrowserBookmarks(bookmarks, mode);
             
-            return { success: true, message: '书签恢复成功' };
+            return { success: true, message: mode === 'overwrite' ? '书签覆盖成功' : '书签恢复成功' };
         } catch (error) {
             throw new Error('书签恢复失败：' + error.message);
         }
@@ -790,49 +852,50 @@ class StorageManager {
         return [];
     }
 
-    // 从favorites.txt恢复快捷方式（合并模式）
-    async _restoreFromFavoritesTxt(txtData) {
+    // 从favorites.txt恢复快捷方式
+    // mode: 'merge' (合并模式，保留本地数据) | 'overwrite' (覆盖模式，删除本地独有数据)
+    async _restoreFromFavoritesTxt(txtData, mode = 'merge') {
         try {
-            // 解析favorites.txt文件（云端数据）
             const cloudShortcuts = this._parseFavoritesTxt(txtData);
-            
-            // 获取本地现有快捷方式
             const localShortcuts = await this.getData(STORAGE_KEYS.SHORTCUTS, []);
             
-            // 创建新的合并表
-            const mergedShortcuts = [];
-            const processedLocalUrls = new Set();
-            
-            // 遍历云端数据
-            for (const cloudShortcut of cloudShortcuts) {
-                // 在本地查找相同URL的快捷方式
-                const localIndex = localShortcuts.findIndex(
-                    local => local.url === cloudShortcut.url
-                );
+            let finalShortcuts;
+            if (mode === 'overwrite') {
+                // 覆盖模式：完全使用云端数据
+                finalShortcuts = cloudShortcuts;
+            } else {
+                // 合并模式：保留本地独有数据，添加云端数据
+                const mergedShortcuts = [];
+                const processedLocalUrls = new Set();
                 
-                if (localIndex !== -1) {
-                    // 1. 本地存在相同URL的快捷方式，使用本地数据（保留原有图标、颜色等设置）
-                    mergedShortcuts.push(localShortcuts[localIndex]);
-                    processedLocalUrls.add(localIndex);
-                } else {
-                    // 2. 本地不存在相同URL的快捷方式，使用云端数据
-                    mergedShortcuts.push(cloudShortcut);
+                for (const cloudShortcut of cloudShortcuts) {
+                    const localIndex = localShortcuts.findIndex(
+                        local => local.url === cloudShortcut.url
+                    );
+                    if (localIndex !== -1) {
+                        mergedShortcuts.push(localShortcuts[localIndex]);
+                        processedLocalUrls.add(localIndex);
+                    } else {
+                        mergedShortcuts.push(cloudShortcut);
+                    }
                 }
+                
+                for (let i = 0; i < localShortcuts.length; i++) {
+                    if (!processedLocalUrls.has(i)) {
+                        mergedShortcuts.push(localShortcuts[i]);
+                    }
+                }
+                
+                finalShortcuts = mergedShortcuts;
             }
             
-            // 3. 将剩余的本地数据（本地有但云端没有的）插入到新表的最后
-            for (let i = 0; i < localShortcuts.length; i++) {
-                if (!processedLocalUrls.has(i)) {
-                    mergedShortcuts.push(localShortcuts[i]);
-                }
-            }
-            
-            // 保存合并后的数据到本地存储
-            await this.saveData(STORAGE_KEYS.SHORTCUTS, mergedShortcuts);
+            await this.saveData(STORAGE_KEYS.SHORTCUTS, finalShortcuts);
             
             return { 
                 success: true, 
-                message: `快捷方式合并成功，云端${cloudShortcuts.length}个，本地原有${localShortcuts.length}个，合并后${mergedShortcuts.length}个` 
+                message: mode === 'overwrite' 
+                    ? `快捷方式覆盖成功，共${finalShortcuts.length}个`
+                    : `快捷方式合并成功，云端${cloudShortcuts.length}个，本地原有${localShortcuts.length}个，合并后${finalShortcuts.length}个` 
             };
         } catch (error) {
             throw new Error('快捷方式恢复失败：' + error.message);
@@ -1096,7 +1159,8 @@ class StorageManager {
     }
 
     // 下载并应用云端同步数据
-    async downloadAndApplySyncData(fileName) {
+    // mode: 'merge' (合并模式) | 'overwrite' (覆盖模式)
+    async downloadAndApplySyncData(fileName, mode = 'merge') {
         try {
             // 获取存储路径（目录已存在，无需再次确保）
             const storagePath = await this._getStoragePath();
@@ -1106,7 +1170,7 @@ class StorageManager {
             const syncData = JSON.parse(syncDataStr);
             
             // 应用同步数据
-            await this.saveAllData(syncData);
+            await this.saveAllData(syncData, mode);
             
             // 获取云端文件的修改时间作为本地同步时间戳
             const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/${fileName}`);
@@ -1158,7 +1222,8 @@ class StorageManager {
     }
 
     // 下载并应用快捷方式（favorites.txt）
-    async downloadFavorites() {
+    // mode: 'merge' (合并模式) | 'overwrite' (覆盖模式)
+    async downloadFavorites(mode = 'merge') {
         try {
             if (!this.webdavClient) {
                 return { success: false, message: 'WebDAV未配置' };
@@ -1167,7 +1232,7 @@ class StorageManager {
             const storagePath = await this._getStoragePath();
             const favoritesData = await this.webdavClient.getFile(`${storagePath}/favorites.txt`);
             
-            const result = await this._restoreFromFavoritesTxt(favoritesData);
+            const result = await this._restoreFromFavoritesTxt(favoritesData, mode);
             
             await this.updateSyncTimestamp('favorites');
             
@@ -1178,7 +1243,8 @@ class StorageManager {
     }
 
     // 下载并应用书签（bookmarks.html）
-    async downloadBookmarks() {
+    // mode: 'merge' (合并模式) | 'overwrite' (覆盖模式)
+    async downloadBookmarks(mode = 'merge') {
         try {
             if (!this.webdavClient) {
                 return { success: false, message: 'WebDAV未配置' };
@@ -1187,7 +1253,7 @@ class StorageManager {
             const storagePath = await this._getStoragePath();
             const bookmarksData = await this.webdavClient.getFile(`${storagePath}/bookmarks.html`);
             
-            const result = await this._restoreFromBookmarksHtml(bookmarksData);
+            const result = await this._restoreFromBookmarksHtml(bookmarksData, mode);
             
             await this.updateSyncTimestamp('bookmarks');
             
@@ -1198,7 +1264,8 @@ class StorageManager {
     }
 
     // 下载并应用完整同步数据（andy_tab_sync.json）
-    async downloadSyncData() {
+    // mode: 'merge' (合并模式) | 'overwrite' (覆盖模式)
+    async downloadSyncData(mode = 'merge') {
         try {
             if (!this.webdavClient) {
                 return { success: false, message: 'WebDAV未配置' };
@@ -1208,7 +1275,7 @@ class StorageManager {
             const syncDataStr = await this.webdavClient.getFile(`${storagePath}/andy_tab_sync.json`);
             const syncData = JSON.parse(syncDataStr);
             
-            await this.saveAllData(syncData);
+            await this.saveAllData(syncData, mode);
             
             await this.updateSyncTimestamp('sync');
             
