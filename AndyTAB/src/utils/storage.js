@@ -1,6 +1,7 @@
 // 存储管理模块 - 处理本地存储和WebDAV同步
 
 import WebDAVClient from './webdav.js';
+import { convertShortcutsToFavoritesTxt, convertBookmarksToHtml } from './syncUtils.js';
 
 // 存储键名常量
 export const STORAGE_KEYS = {
@@ -11,111 +12,32 @@ export const STORAGE_KEYS = {
     OFFLINE_CACHE: 'andy_tab_offline_cache',
     TODOS: 'andy_tab_todos',
     NOTES: 'andy_tab_notes',
-    SYNC_LAST_TIMESTAMP: 'andy_tab_sync_lasttimestamp',
-    USER_BOOKMARKS: 'user_bookmarks'
+    SYNC_LAST_TIMESTAMP: 'andy_tab_sync_lasttimestamp'
 };
 
 class StorageManager {
     constructor() {
         this.webdavClient = null;
         this.offlineCache = new Map();
-        this.syncDebounceTimer = null;
-        this._syncInProgress = false;
-    }
-    
-    // 初始化用户书签
-    async _initUserBookmarks() {
-        try {
-            const bookmarks = await this._getBrowserBookmarks();
-            this._syncInProgress = true;
-            try {
-                await chrome.storage.local.set({
-                    [STORAGE_KEYS.USER_BOOKMARKS]: bookmarks
-                });
-            } finally {
-                this._syncInProgress = false;
-            }
-        } catch (error) {
-            console.error('初始化用户书签失败：', error);
-        }
-    }
-    
-    // 监听用户书签变化
-    _listenBookmarkChanges() {
-        // 防抖定时器，避免频繁触发
-        let bookmarkChangeTimer = null;
-        
-        const handleBookmarkChange = async () => {
-            // 合并或恢复书签期间，不触发自动上传
-            if (this._syncInProgress) {
-                return;
-            }
-            
-            // 清除之前的定时器
-            if (bookmarkChangeTimer) {
-                clearTimeout(bookmarkChangeTimer);
-            }
-            
-            // 设置新的定时器，延迟500ms执行
-            bookmarkChangeTimer = setTimeout(async () => {
-                try {
-                    // _initUserBookmarks 会同步设置 USER_BOOKMARKS，并使用标志位防止 chrome.storage.onChanged 触发上传
-                    await this._initUserBookmarks();
-                    // 此处直接触发上传（不会因 _initUserBookmarks 的 set 而重复触发）
-                    await this.uploadSyncDataWithDebounce();
-                } catch (error) {
-                    console.error('处理书签变化失败：', error);
-                }
-            }, 500);
-        };
-        
-        // 监听书签创建
-        chrome.bookmarks.onCreated.addListener(handleBookmarkChange);
-        
-        // 监听书签删除
-        chrome.bookmarks.onRemoved.addListener(handleBookmarkChange);
-        
-        // 监听书签更改/重命名
-        chrome.bookmarks.onChanged.addListener(handleBookmarkChange);
-        
-        // 监听书签移动
-        chrome.bookmarks.onMoved.addListener(handleBookmarkChange);
-    }
-    
-    // 监听存储变化
-    _listenStorageChanges() {
-        chrome.storage.onChanged.addListener(async (changes, areaName) => {
-            // 仅在 syncInProgress 标志为 false 时触发同步（避免 _initUserBookmarks 引起的循环上传）
-            if (areaName === 'local' && changes[STORAGE_KEYS.USER_BOOKMARKS] && !this._syncInProgress) {
-                await this.uploadSyncDataWithDebounce();
-            }
-        });
     }
     
     // 初始化
     async init() {
-        // 标记初始化期间，防止 onChanged 误触发上传
-        this._syncInProgress = true;
+        // 通知 background 暂停自动上传，防止初始化写入触发误上传
+        this._notifyBackground('syncStart');
         
         try {
             // 并行执行离线缓存加载和存储数据初始化，提高速度
             await Promise.all([
                 this.loadOfflineCache(),
-                this.initStorageData(),
-                this._initUserBookmarks()
+                this.initStorageData()
             ]);
         } finally {
-            this._syncInProgress = false;
+            this._notifyBackground('syncEnd');
         }
         
         // 初始化WebDAV客户端（如果配置存在）
         await this.initWebDAVClient();
-        
-        // 监听书签变化
-        this._listenBookmarkChanges();
-        
-        // 监听存储变化
-        this._listenStorageChanges();
     }
     
     // 检查并初始化单个存储项
@@ -304,9 +226,6 @@ class StorageManager {
         });
     }
     
-    // 从本地存储获取用户书签（已废弃，移除以避免使用过期缓存）
-    // 如需获取书签，直接调用 _getBrowserBookmarks() 从 chrome API 实时获取
-    
     // 获取所有数据（用于备份）
     async getAllData() {
         const data = {
@@ -320,67 +239,6 @@ class StorageManager {
         };
         
         return data;
-    }
-    
-    // 递归创建书签
-    async _createBookmark(parentId, bookmark) {
-        return new Promise((resolve) => {
-            // 检查书签对象是否有效
-            if (!bookmark || !bookmark.title) {
-                resolve();
-                return;
-            }
-            
-            const bookmarkData = {
-                parentId: parentId,
-                title: bookmark.title
-            };
-            
-            // 如果是文件夹
-            if (bookmark.children && bookmark.children.length > 0) {
-                chrome.bookmarks.create(bookmarkData, async (createdFolder) => {
-                    // 检查创建的文件夹是否有效
-                    if (!createdFolder) {
-                        resolve();
-                        return;
-                    }
-                    
-                    // 递归创建子书签
-                    for (const child of bookmark.children) {
-                        await this._createBookmark(createdFolder.id, child);
-                    }
-                    resolve();
-                });
-            } else if (bookmark.url) {
-                // 如果是书签项且有URL
-                bookmarkData.url = bookmark.url;
-                chrome.bookmarks.create(bookmarkData, () => {
-                    resolve();
-                });
-            } else {
-                // 无效的书签项，直接返回
-                resolve();
-            }
-        });
-    }
-    
-    // 清空文件夹中的所有内容
-    async _clearFolderContents(folderId) {
-        return new Promise((resolve) => {
-            chrome.bookmarks.getChildren(folderId, async (children) => {
-                for (const child of children) {
-                    if (child.children && child.children.length > 0) {
-                        // 如果是文件夹，递归清空
-                        await this._clearFolderContents(child.id);
-                    }
-                    // 删除书签或文件夹
-                    await new Promise((resolveDelete) => {
-                        chrome.bookmarks.remove(child.id, resolveDelete);
-                    });
-                }
-                resolve();
-            });
-        });
     }
     
     // 检查书签是否已存在
@@ -473,10 +331,8 @@ class StorageManager {
     // mode: 'merge' (合并模式，保留本地数据) | 'overwrite' (覆盖模式，删除本地独有数据)
     async _restoreBrowserBookmarks(bookmarks, mode = 'merge') {
         try {
-            // 临时禁用书签变化监听器，避免合并时创建的书签触发自动上传
-            const wasSyncInProgress = this._syncInProgress;
-            this._syncInProgress = true;
-            
+            // 书签变化监听由 background.js 的 _notifyBackground('syncStart/End') 控制
+            // 调用 _restoreBrowserBookmarks 的方法（saveAllData 等）已包裹通知
             try {
                 if (bookmarks && bookmarks.length > 0 && bookmarks[0] && bookmarks[0].children) {
                     const importedRoots = bookmarks[0].children;
@@ -553,7 +409,6 @@ class StorageManager {
                     }
                 }
             } finally {
-                this._syncInProgress = wasSyncInProgress;
             }
         } catch (error) {
             console.error('恢复浏览器书签失败：', error);
@@ -596,11 +451,21 @@ class StorageManager {
         }
     }
     
+    // 通知 background service worker 同步操作开始/结束
+    // 防止下载/恢复数据写入本地存储时触发 background 的自动上传
+    _notifyBackground(type) {
+        try {
+            chrome.runtime.sendMessage({ type });
+        } catch (e) {
+            // background 未运行时可能报错，忽略
+        }
+    }
+
     // 保存所有数据（用于备份）
     // 保存所有数据（用于备份/恢复）
     // mode: 'merge' (合并模式，保留本地数据) | 'overwrite' (覆盖模式，删除本地独有数据)
     async saveAllData(data, mode = 'merge') {
-        
+        this._notifyBackground('syncStart');
         try {
             if (data.shortcuts) {
                 await this.saveData(STORAGE_KEYS.SHORTCUTS, data.shortcuts);
@@ -627,17 +492,12 @@ class StorageManager {
             }
             
             if (data.bookmarks) {
-                // 覆盖模式：仅在 overwrite 模式下写入 USER_BOOKMARKS 缓存（保证和浏览器一致）
-                // 合并模式：避免覆盖 USER_BOOKMARKS 缓存，让 _initUserBookmarks 在书签变化时再更新
-                if (mode === 'overwrite') {
-                    await chrome.storage.local.set({
-                        [STORAGE_KEYS.USER_BOOKMARKS]: data.bookmarks
-                    });
-                }
-                // 恢复到浏览器（根据 mode 决定是合并还是覆盖）
+                // 直接恢复到浏览器（根据 mode 决定是合并还是覆盖）
+                // 不再写入 USER_BOOKMARKS 缓存
                 await this._restoreBrowserBookmarks(data.bookmarks, mode);
             }
         } finally {
+            this._notifyBackground('syncEnd');
         }
     }
 
@@ -712,6 +572,7 @@ class StorageManager {
     
     // 从本地文件恢复数据
     async restoreDataFromLocalFile(file) {
+        this._notifyBackground('syncStart');
         return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onload = async (e) => {
@@ -721,6 +582,8 @@ class StorageManager {
                     resolve({ success: true, message: '本地备份恢复成功' });
                 } catch (error) {
                     resolve({ success: false, message: error.message });
+                } finally {
+                    this._notifyBackground('syncEnd');
                 }
             };
             reader.readAsText(file);
@@ -729,6 +592,7 @@ class StorageManager {
     
     // 恢复数据
     async restoreData(backupName) {
+        this._notifyBackground('syncStart');
         try {
             if (!this.webdavClient) {
                 throw new Error('WebDAV未配置，无法恢复WebDAV备份');
@@ -756,6 +620,8 @@ class StorageManager {
             }
         } catch (error) {
             return { success: false, message: error.message };
+        } finally {
+            this._notifyBackground('syncEnd');
         }
     }
 
@@ -854,6 +720,7 @@ class StorageManager {
 
     // 从favorites.txt恢复快捷方式
     // mode: 'merge' (合并模式，保留本地数据) | 'overwrite' (覆盖模式，删除本地独有数据)
+    // overwrite 模式下，相同 URL 的项会用云端数据为基础，并把旧本地数据的额外字段（如颜色、图标）合并进去
     async _restoreFromFavoritesTxt(txtData, mode = 'merge') {
         try {
             const cloudShortcuts = this._parseFavoritesTxt(txtData);
@@ -861,8 +728,28 @@ class StorageManager {
             
             let finalShortcuts;
             if (mode === 'overwrite') {
-                // 覆盖模式：完全使用云端数据
-                finalShortcuts = cloudShortcuts;
+                // 覆盖模式：以云端数据为基础，相同 URL 的项把旧本地数据的额外字段合并进去
+                finalShortcuts = cloudShortcuts.map(cloudShortcut => {
+                    const localShortcut = localShortcuts.find(
+                        local => local.url === cloudShortcut.url
+                    );
+                    if (!localShortcut) {
+                        return cloudShortcut;
+                    }
+                    // 合并：云端字段优先，本地独有的字段（云端缺失或为默认值时）从旧本地数据补回
+                    return {
+                        ...localShortcut,  // 先以本地为基础
+                        ...cloudShortcut,  // 再用云端覆盖（云端是权威）
+                        // 旧本地数据中"非默认"的字段作为补充
+                        iconType: cloudShortcut.iconType && cloudShortcut.iconType !== 'auto' 
+                            ? cloudShortcut.iconType 
+                            : (localShortcut.iconType || 'auto'),
+                        icon: cloudShortcut.icon || localShortcut.icon || '',
+                        customColor: cloudShortcut.customColor !== null && cloudShortcut.customColor !== undefined
+                            ? cloudShortcut.customColor
+                            : (localShortcut.customColor || null)
+                    };
+                });
             } else {
                 // 合并模式：保留本地独有数据，添加云端数据
                 const mergedShortcuts = [];
@@ -903,6 +790,7 @@ class StorageManager {
     }
 
     // 解析favorites.txt格式的快捷方式
+    // 解析所有字段（title/url/order/iconType/icon/customColor）以便完整恢复
     _parseFavoritesTxt(txtData) {
         const shortcuts = [];
         const lines = txtData.split('\n');
@@ -918,8 +806,9 @@ class StorageManager {
                         id: Date.now() + Math.random().toString(36).substr(2, 9),
                         name: item.title,
                         url: item.url,
-                        iconType: 'default',
-                        customColor: null
+                        iconType: item.iconType || 'auto',
+                        icon: item.icon || '',
+                        customColor: item.customColor || null
                     });
                 }
             } catch {
@@ -984,134 +873,6 @@ class StorageManager {
         }
     }
 
-    // 获取最新的同步文件（andy_tab_sync.json）
-    async getLatestSyncFile() {
-        try {
-            // 获取存储路径并确保目录存在
-            const storagePath = await this._getStoragePathWithEnsure();
-            
-            // 列出存储文件夹中的文件
-            const webdavFiles = await this.webdavClient.listDirectory(storagePath);
-            
-            // 查找andy_tab_sync.json文件
-            const syncFile = webdavFiles.find(file => file.name === 'andy_tab_sync.json');
-            
-            if (!syncFile) {
-                return null;
-            }
-            
-            return syncFile;
-        } catch (error) {
-            console.error('获取最新同步文件失败：', error);
-            return null;
-        }
-    }
-
-    // 上传同步数据到云端（带3秒防抖）
-    async uploadSyncDataWithDebounce() {
-        // 清除之前的防抖定时器
-        if (this.syncDebounceTimer) {
-            clearTimeout(this.syncDebounceTimer);
-        }
-        
-        // 设置新的防抖定时器
-        this.syncDebounceTimer = setTimeout(async () => {
-            try {
-                await this.uploadSyncData();
-            } catch (error) {
-                console.error('同步数据上传失败：', error);
-            }
-        }, 3000);
-    }
-
-    // 将快捷方式转换为favorites.txt格式
-    _convertShortcutsToFavoritesTxt(shortcuts) {
-        if (!Array.isArray(shortcuts)) return '';
-        
-        return shortcuts.map((shortcut, index) => {
-            return JSON.stringify({
-                title: shortcut.name || '',
-                url: shortcut.url || '',
-                order: index
-            });
-        }).join('\n');
-    }
-
-    // 将书签转换为bookmarks.html格式（Netscape Bookmark格式）
-    // 跳过roots，直接备份roots下的子元素（bookmark_bar, other, synced等）
-    _convertBookmarksToHtml(bookmarks) {
-        const generateBookmarkHtml = (bookmark, level = 0, isBookmarkBar = false) => {
-            const indent = '    '.repeat(level);
-
-            if (bookmark.children !== undefined) {
-                const addDate = bookmark.dateAdded ? Math.floor(bookmark.dateAdded / 1000) : Math.floor(Date.now() / 1000);
-                const lastModified = bookmark.dateGroupModified ? Math.floor(bookmark.dateGroupModified / 1000) : 0;
-                
-                let h3Attrs = `ADD_DATE="${addDate}"`;
-                if (lastModified > 0) {
-                    h3Attrs += ` LAST_MODIFIED="${lastModified}"`;
-                }
-                if (isBookmarkBar) {
-                    h3Attrs += ' PERSONAL_TOOLBAR_FOLDER="true"';
-                }
-                
-                let html = `${indent}<DT><H3 ${h3Attrs}>${this._escapeHtml(bookmark.title || '未命名文件夹')}</H3>\n`;
-                html += `${indent}<DL><p>\n`;
-                if (bookmark.children && bookmark.children.length > 0) {
-                    for (const child of bookmark.children) {
-                        html += generateBookmarkHtml(child, level + 1);
-                    }
-                }
-                html += `${indent}</DL><p>\n`;
-                return html;
-            } else {
-                const addDate = bookmark.dateAdded ? Math.floor(bookmark.dateAdded / 1000) : Math.floor(Date.now() / 1000);
-                let aAttrs = `HREF="${this._escapeHtml(bookmark.url || '')}" ADD_DATE="${addDate}"`;
-                if (bookmark.icon) {
-                    aAttrs += ` ICON="${this._escapeHtml(bookmark.icon)}"`;
-                }
-                return `${indent}<DT><A ${aAttrs}>${this._escapeHtml(bookmark.title || '')}</A>\n`;
-            }
-        };
-
-        let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
-<!-- This is an automatically generated file.
-     It will be read and overwritten.
-     DO NOT EDIT! -->
-<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
-<TITLE>Bookmarks</TITLE>
-<H1>Bookmarks</H1>
-<DL><p>
-`;
-
-        let bookmarkRoots = bookmarks;
-
-        if (Array.isArray(bookmarks) && bookmarks.length === 1 && bookmarks[0].children) {
-            bookmarkRoots = bookmarks[0].children;
-        }
-
-        if (Array.isArray(bookmarkRoots)) {
-            for (const bookmark of bookmarkRoots) {
-                const title = (bookmark.title || '').toLowerCase();
-                const isBookmarkBar = bookmark.id === '1' || title.includes('书签栏') || title.includes('bookmarks bar');
-                html += generateBookmarkHtml(bookmark, 1, isBookmarkBar);
-            }
-        }
-
-        html += '</DL><p>';
-        return html;
-    }
-
-    // HTML转义辅助函数
-    _escapeHtml(text) {
-        if (!text) return '';
-        return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
-
     // 上传同步数据到云端
     async uploadSyncData() {
         try {
@@ -1127,11 +888,11 @@ class StorageManager {
             const storagePath = await this._getStoragePathWithEnsure();
             
             // 1. 上传favorites.txt（快捷方式）
-            const favoritesContent = this._convertShortcutsToFavoritesTxt(shortcuts);
+            const favoritesContent = convertShortcutsToFavoritesTxt(shortcuts);
             await this.webdavClient.putFile(`${storagePath}/favorites.txt`, favoritesContent);
             
             // 2. 上传bookmarks.html（书签）
-            const bookmarksHtml = this._convertBookmarksToHtml(bookmarks);
+            const bookmarksHtml = convertBookmarksToHtml(bookmarks);
             await this.webdavClient.putFile(`${storagePath}/bookmarks.html`, bookmarksHtml);
             
             // 3. 上传andy_tab_sync.json（完整数据备份）
@@ -1153,33 +914,6 @@ class StorageManager {
             await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, timestamps);
             
             return { success: true, message: '同步数据上传成功' };
-        } catch (error) {
-            return { success: false, message: error.message };
-        }
-    }
-
-    // 下载并应用云端同步数据
-    // mode: 'merge' (合并模式) | 'overwrite' (覆盖模式)
-    async downloadAndApplySyncData(fileName, mode = 'merge') {
-        try {
-            // 获取存储路径（目录已存在，无需再次确保）
-            const storagePath = await this._getStoragePath();
-
-            // 从WebDAV下载同步数据
-            const syncDataStr = await this.webdavClient.getFile(`${storagePath}/${fileName}`);
-            const syncData = JSON.parse(syncDataStr);
-            
-            // 应用同步数据
-            await this.saveAllData(syncData, mode);
-            
-            // 获取云端文件的修改时间作为本地同步时间戳
-            const fileInfo = await this.webdavClient.getFileInfo(`${storagePath}/${fileName}`);
-            const timestamp = fileInfo.modified ? new Date(fileInfo.modified).getTime() : Date.now();
-            
-            // 更新最后同步时间戳（兼容旧格式）
-            await this.saveData(STORAGE_KEYS.SYNC_LAST_TIMESTAMP, { sync: timestamp });
-            
-            return { success: true, message: '同步数据应用成功' };
         } catch (error) {
             return { success: false, message: error.message };
         }
@@ -1224,6 +958,7 @@ class StorageManager {
     // 下载并应用快捷方式（favorites.txt）
     // mode: 'merge' (合并模式) | 'overwrite' (覆盖模式)
     async downloadFavorites(mode = 'merge') {
+        this._notifyBackground('syncStart');
         try {
             if (!this.webdavClient) {
                 return { success: false, message: 'WebDAV未配置' };
@@ -1239,12 +974,15 @@ class StorageManager {
             return { success: true, message: result.message };
         } catch (error) {
             return { success: false, message: error.message };
+        } finally {
+            this._notifyBackground('syncEnd');
         }
     }
 
     // 下载并应用书签（bookmarks.html）
     // mode: 'merge' (合并模式) | 'overwrite' (覆盖模式)
     async downloadBookmarks(mode = 'merge') {
+        this._notifyBackground('syncStart');
         try {
             if (!this.webdavClient) {
                 return { success: false, message: 'WebDAV未配置' };
@@ -1260,12 +998,15 @@ class StorageManager {
             return { success: true, message: result.message };
         } catch (error) {
             return { success: false, message: error.message };
+        } finally {
+            this._notifyBackground('syncEnd');
         }
     }
 
     // 下载并应用完整同步数据（andy_tab_sync.json）
     // mode: 'merge' (合并模式) | 'overwrite' (覆盖模式)
     async downloadSyncData(mode = 'merge') {
+        this._notifyBackground('syncStart');
         try {
             if (!this.webdavClient) {
                 return { success: false, message: 'WebDAV未配置' };
@@ -1277,11 +1018,18 @@ class StorageManager {
             
             await this.saveAllData(syncData, mode);
             
+            // andy_tab_sync.json 是超级集，包含 favorites.txt 和 bookmarks.html 的所有内容
+            // 下载 sync.json 后，本地数据已经与云端一致，需要同时更新 3 个文件的时间戳
+            // 避免下次启动时误判 favorites/bookmarks 也需要同步
             await this.updateSyncTimestamp('sync');
+            await this.updateSyncTimestamp('favorites');
+            await this.updateSyncTimestamp('bookmarks');
             
             return { success: true, message: '完整数据同步成功' };
         } catch (error) {
             return { success: false, message: error.message };
+        } finally {
+            this._notifyBackground('syncEnd');
         }
     }
 

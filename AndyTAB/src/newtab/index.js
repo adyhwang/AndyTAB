@@ -8,7 +8,6 @@ const STORAGE_KEYS = {
     SETTINGS: 'andy_tab_settings',
     WEBDAV_CONFIG: 'andy_tab_webdav_config',
     SEARCH_ENGINES: 'andy_tab_search_engines',
-    OFFLINE_CACHE: 'andy_tab_offline_cache',
     TODOS: 'andy_tab_todos',
     NOTES: 'andy_tab_notes',
     SYNC_LAST_TIMESTAMP: 'andy_tab_sync_lasttimestamp'
@@ -99,23 +98,7 @@ async function init() {
                 }
             }
             
-            // 检查是否是同步数据相关的key变化
-            const syncableKeys = [
-                STORAGE_KEYS.SHORTCUTS,
-                STORAGE_KEYS.SETTINGS,
-                STORAGE_KEYS.SEARCH_ENGINES,
-                STORAGE_KEYS.TODOS,
-                STORAGE_KEYS.NOTES
-            ];
-            
-            // 检查是否有同步数据相关的key发生变化
-            const hasSyncableChange = Object.keys(changes).some(key => 
-                syncableKeys.includes(key) && key !== STORAGE_KEYS.SYNC_LAST_TIMESTAMP
-            );
-            
-            if (hasSyncableChange) {
-                storageManager.uploadSyncDataWithDebounce();
-            }
+            // 同步上传由 background service worker (src/background.js) 统一处理，这里不再重复触发
         }
     });
     
@@ -172,6 +155,13 @@ async function initSyncCheck() {
             if (cloudSyncTs - localSyncTs > TIME_TOLERANCE) {
                 needSync.sync = true;
             }
+        }
+
+        // andy_tab_sync.json 是超级集，包含 favorites.txt 和 bookmarks.html 的所有内容
+        // 如果 sync 文件需要同步，则不需要再单独同步 favorites 和 bookmarks
+        if (needSync.sync) {
+            needSync.favorites = false;
+            needSync.bookmarks = false;
         }
 
         const syncCount = Object.values(needSync).filter(Boolean).length;
@@ -472,17 +462,15 @@ function showSyncConflictDialog(needSync, hasLocalData) {
                     return;
                     
                 case 'merge':
-                    if (needSync.favorites) {
-                        await storageManager.downloadFavorites('merge');
-                    }
-                    if (needSync.bookmarks) {
-                        await storageManager.downloadBookmarks('merge');
-                    }
+                    // 优先处理 sync.json（超级集），如果需要同步 sync 则只下载 sync
                     if (needSync.sync) {
-                        if (!needSync.favorites && !needSync.bookmarks) {
-                            await storageManager.downloadSyncData();
-                        } else {
-                            await storageManager.updateSyncTimestamp('sync');
+                        await storageManager.downloadSyncData('merge');
+                    } else {
+                        if (needSync.favorites) {
+                            await storageManager.downloadFavorites('merge');
+                        }
+                        if (needSync.bookmarks) {
+                            await storageManager.downloadBookmarks('merge');
                         }
                     }
                     await storageManager.uploadSyncData();
@@ -508,19 +496,18 @@ function showSyncConflictDialog(needSync, hasLocalData) {
 }
 
 async function batchDownload(needSync, mode = 'overwrite') {
+    // 优先处理 andy_tab_sync.json（超级集，包含 favorites.txt 和 bookmarks.html 的所有内容）
+    // 如果需要同步 sync 文件，则跳过 favorites 和 bookmarks 的下载
+    if (needSync.sync) {
+        await storageManager.downloadSyncData(mode);
+        return;
+    }
+    
     if (needSync.favorites) {
         await storageManager.downloadFavorites(mode);
     }
     if (needSync.bookmarks) {
         await storageManager.downloadBookmarks(mode);
-    }
-    if (needSync.sync) {
-        if (!needSync.favorites && !needSync.bookmarks) {
-            // 单独下载 sync 文件时，根据 mode 决定合并/覆盖
-            await storageManager.downloadSyncData(mode);
-        } else {
-            await storageManager.updateSyncTimestamp('sync');
-        }
     }
 }
 
