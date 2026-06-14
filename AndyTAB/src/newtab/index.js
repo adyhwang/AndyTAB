@@ -127,7 +127,14 @@ async function initSyncCheck() {
 
         const TIME_TOLERANCE = 3000;
 
-        const needSync = {
+        // cloudNewer: 云端更新 → 自动下载覆盖本地
+        // localNewer: 本地更新 → 弹出同步对话框让用户选择
+        const cloudNewer = {
+            favorites: false,
+            bookmarks: false,
+            sync: false
+        };
+        const localNewer = {
             favorites: false,
             bookmarks: false,
             sync: false
@@ -137,7 +144,9 @@ async function initSyncCheck() {
             const localFavTs = localTs.favorites || 0;
             const cloudFavTs = cloudFilesInfo.favorites.modified;
             if (cloudFavTs - localFavTs > TIME_TOLERANCE) {
-                needSync.favorites = true;
+                cloudNewer.favorites = true;
+            } else if (localFavTs - cloudFavTs > TIME_TOLERANCE) {
+                localNewer.favorites = true;
             }
         }
 
@@ -145,7 +154,9 @@ async function initSyncCheck() {
             const localBmTs = localTs.bookmarks || 0;
             const cloudBmTs = cloudFilesInfo.bookmarks.modified;
             if (cloudBmTs - localBmTs > TIME_TOLERANCE) {
-                needSync.bookmarks = true;
+                cloudNewer.bookmarks = true;
+            } else if (localBmTs - cloudBmTs > TIME_TOLERANCE) {
+                localNewer.bookmarks = true;
             }
         }
 
@@ -153,19 +164,55 @@ async function initSyncCheck() {
             const localSyncTs = localTs.sync || 0;
             const cloudSyncTs = cloudFilesInfo.sync.modified;
             if (cloudSyncTs - localSyncTs > TIME_TOLERANCE) {
-                needSync.sync = true;
+                cloudNewer.sync = true;
+            } else if (localSyncTs - cloudSyncTs > TIME_TOLERANCE) {
+                localNewer.sync = true;
             }
         }
 
         // andy_tab_sync.json 是超级集，包含 favorites.txt 和 bookmarks.html 的所有内容
         // 如果 sync 文件需要同步，则不需要再单独同步 favorites 和 bookmarks
-        if (needSync.sync) {
-            needSync.favorites = false;
-            needSync.bookmarks = false;
+        if (cloudNewer.sync) {
+            cloudNewer.favorites = false;
+            cloudNewer.bookmarks = false;
+        }
+        if (localNewer.sync) {
+            localNewer.favorites = false;
+            localNewer.bookmarks = false;
         }
 
-        const syncCount = Object.values(needSync).filter(Boolean).length;
-        if (syncCount === 0) {
+        // 云端更新 → 自动下载覆盖本地
+        const cloudNewerCount = Object.values(cloudNewer).filter(Boolean).length;
+        if (cloudNewerCount > 0) {
+            // 显示云端同步提示
+            const syncTip = document.createElement('div');
+            syncTip.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 24px 32px;
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+                z-index: 10000;
+                font-size: 16px;
+                color: #333;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            `;
+            syncTip.innerHTML = '<span style="font-size:20px">🔄</span> 正在从云端同步数据...';
+            document.body.appendChild(syncTip);
+
+            await batchDownload(cloudNewer, 'overwrite');
+            location.reload();
+            return;
+        }
+
+        // 本地更新 → 弹出同步对话框
+        const localNewerCount = Object.values(localNewer).filter(Boolean).length;
+        if (localNewerCount === 0) {
             return;
         }
 
@@ -177,7 +224,7 @@ async function initSyncCheck() {
             hasLocalData = localData.shortcuts?.length > 0 || localData.bookmarks?.length > 0;
         }
 
-        showSyncConflictDialog(needSync, hasLocalData);
+        showSyncConflictDialog(localNewer, hasLocalData);
 
     } catch (error) {
         console.error('初始化同步检查失败：', error);
