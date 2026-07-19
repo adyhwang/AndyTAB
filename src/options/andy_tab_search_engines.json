@@ -1,0 +1,50 @@
+{
+  "bingCN": {
+    "name": "BingCN",
+    "url": "https://cn.bing.com/search?q=%s"
+  },
+  "bing_international": {
+    "name": "Bing",
+    "url": "https://www.bing.com/search?q=%s"
+  },
+  "baidu": {
+    "name": "百度",
+    "url": "https://www.baidu.com/s?wd=%s&ie=UTF-8"
+  },
+  "bilibili": {
+    "name": "哔哩哔哩",
+    "url": "https://search.bilibili.com/all?keyword=%s"
+  },
+  "duckduckgo": {
+    "name": "DuckDuckGo",
+    "url": "https://duckduckgo.com/?q=%s"
+  },
+  "google": {
+    "name": "Google",
+    "url": "https://www.google.com/search?q=%s"
+  },
+  "github": {
+    "name": "GitHub",
+    "url": "https://github.com/search?q=%s"
+  },
+  "sogou": {
+    "name": "搜狗",
+    "url": "https://www.sogou.com/web?query=%s"
+  },
+  "so": {
+    "name": "360搜索",
+    "url": "https://www.so.com/s?q=%s"
+  },
+  "stack_overflow": {
+    "name": "Stack Overflow",
+    "url": "https://stackoverflow.com/search?q=%s"
+  },
+  "yahoo": {
+    "name": "Yahoo",
+    "url": "https://search.yahoo.com/search?p=%s"
+  },
+  "zhihu": {
+    "name": "知乎",
+    "url": "https://www.zhihu.com/search?q=%s"
+  }
+}
