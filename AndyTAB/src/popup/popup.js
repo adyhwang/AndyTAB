@@ -221,6 +221,11 @@ async function fetchWebsiteInfo() {
             response = await fetchWebsiteInfoDirectly(fullUrl);
         }
         
+        // 如果后台没有响应（undefined），使用直接获取方式
+        if (!response) {
+            response = await fetchWebsiteInfoDirectly(fullUrl);
+        }
+        
         if (response.success) {
             let { title, icon } = response.data;
             

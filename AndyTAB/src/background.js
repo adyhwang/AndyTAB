@@ -177,11 +177,11 @@ chrome.bookmarks.onMoved.addListener(handleBookmarkChange);
 // ========== 监听来自 storage.js 的同步状态通知 ==========
 // 下载/恢复数据时，storage.js 会发送 syncStart/syncEnd 消息
 // 防止写入本地存储时触发误上传
+// 同时处理 FETCH_WEBSITE_INFO 请求（newtab/popup 的获取信息功能）
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'syncStart') {
         syncRefCount++;
         syncInProgress = true;
-        // 清除待执行的防抖上传
         if (syncDebounceTimer) {
             clearTimeout(syncDebounceTimer);
             syncDebounceTimer = null;
@@ -195,5 +195,72 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (syncRefCount === 0) {
             syncInProgress = false;
         }
+    } else if (message.action === 'FETCH_WEBSITE_INFO') {
+        fetchWebsiteInfo(message.url).then(sendResponse).catch(e => {
+            sendResponse({ success: false, error: e.message });
+        });
+        return true;
     }
 });
+
+async function fetchWebsiteInfo(url) {
+    try {
+        let icon = '';
+        let title = '';
+
+        const urlObj = new URL(url);
+        const domain = urlObj.hostname;
+
+        icon = `https://favicon.im/${domain}?larger=true`;
+
+        try {
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+
+            if (response.ok) {
+                const html = await response.text();
+
+                const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+                title = titleMatch ? titleMatch[1].trim() : domain;
+
+                const iconPatterns = [
+                    /<link[^>]*rel=["']?(?:shortcut\s+)?icon["']?[^>]*href=["']?([^"'>]+)["']?[^>]*>/i,
+                    /<link[^>]*href=["']?([^"'>]+)["']?[^>]*rel=["']?(?:shortcut\s+)?icon["']?[^>]*>/i
+                ];
+
+                for (const pattern of iconPatterns) {
+                    const match = html.match(pattern);
+                    if (match) {
+                        let iconUrl = match[1];
+                        if (iconUrl && !iconUrl.startsWith('http')) {
+                            if (iconUrl.startsWith('//')) {
+                                iconUrl = urlObj.protocol + iconUrl;
+                            } else if (iconUrl.startsWith('/')) {
+                                iconUrl = urlObj.origin + iconUrl;
+                            } else {
+                                iconUrl = urlObj.origin + '/' + iconUrl;
+                            }
+                        }
+                        if (iconUrl) {
+                            icon = iconUrl;
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch {
+        }
+
+        if (!title) {
+            title = domain;
+        }
+
+        return { success: true, data: { title, icon } };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}

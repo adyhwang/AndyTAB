@@ -298,7 +298,7 @@ body::before {
     max-width: none;
     padding: 5px;
     box-sizing: border-box;
-    transition: transform 0.3s ease;
+    opacity: 0;
 }
 
 .shortcut-item {

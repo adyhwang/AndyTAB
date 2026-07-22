@@ -205,8 +205,16 @@ async function initSyncCheck() {
             syncTip.innerHTML = '<span style="font-size:20px">🔄</span> 正在从云端同步数据...';
             document.body.appendChild(syncTip);
 
-            await batchDownload(cloudNewer, 'overwrite');
-            location.reload();
+            try {
+                await batchDownload(cloudNewer, 'overwrite');
+                location.reload();
+            } catch (error) {
+                syncTip.innerHTML = '<span style="font-size:20px">❌</span> 同步失败: ' + error.message;
+                syncTip.style.background = '#fff5f5';
+                setTimeout(() => {
+                    syncTip.remove();
+                }, 3000);
+            }
             return;
         }
 
@@ -2245,6 +2253,8 @@ function applyShortcutsGridScaling() {
         } else {
             grid.style.marginBottom = '';
         }
+        
+        grid.style.opacity = 1;
     });
 }
 
@@ -3427,10 +3437,15 @@ window.renderShortcuts = renderShortcuts;
                      )
                  ]);
              } catch (messageError) {
-                 console.error('后台消息发送失败:', messageError);                 
-                 // 后备方案：直接尝试获取网站信息
-                 response = await fetchWebsiteInfoDirectly(fullUrl);
-             }
+                console.error('后台消息发送失败:', messageError);                 
+                // 后备方案：直接尝试获取网站信息
+                response = await fetchWebsiteInfoDirectly(fullUrl);
+            }
+            
+            // 如果后台没有响应（undefined），使用直接获取方式
+            if (!response) {
+                response = await fetchWebsiteInfoDirectly(fullUrl);
+            }
             
             if (response.success) {
                 let { title, icon } = response.data;
