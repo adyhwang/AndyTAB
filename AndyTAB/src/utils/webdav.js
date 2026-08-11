@@ -270,6 +270,33 @@ class WebDAVClient {
         }
     }
 
+    // 获取文件最后修改时间（HEAD请求，不依赖XML解析，兼容Service Worker环境）
+    async getLastModified(path) {
+        try {
+            const url = `${this.config.url}${path}`;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
+
+            const response = await fetch(url, {
+                method: 'HEAD',
+                headers: { ...this.getAuthHeaders() },
+                signal: controller.signal,
+                mode: 'cors',
+                credentials: 'omit'
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                return null;
+            }
+
+            return response.headers.get('Last-Modified');
+        } catch (error) {
+            return null;
+        }
+    }
+
     // 获取文件信息（包括修改时间）
     async getFileInfo(path) {
         try {

@@ -109,12 +109,17 @@ async function uploadSyncData() {
         // 3. 上传 andy_tab_sync.json
         await webdavClient.putFile(`${storagePath}/andy_tab_sync.json`, JSON.stringify(data, null, 2));
 
-        // 更新时间戳（使用当前时间，避免依赖 getFileInfo 需要 DOMParser）
-        const now = Date.now();
+        // 获取3个文件的实际修改时间（HEAD请求，不依赖XML解析，兼容Service Worker）
+        const [lastModifiedFav, lastModifiedBm, lastModifiedSync] = await Promise.all([
+            webdavClient.getLastModified(`${storagePath}/favorites.txt`),
+            webdavClient.getLastModified(`${storagePath}/bookmarks.html`),
+            webdavClient.getLastModified(`${storagePath}/andy_tab_sync.json`)
+        ]);
+
         const timestamps = (await chrome.storage.local.get([STORAGE_KEYS.SYNC_LAST_TIMESTAMP]))[STORAGE_KEYS.SYNC_LAST_TIMESTAMP] || {};
-        timestamps.favorites = now;
-        timestamps.bookmarks = now;
-        timestamps.sync = now;
+        timestamps.favorites = lastModifiedFav ? new Date(lastModifiedFav).getTime() : Date.now();
+        timestamps.bookmarks = lastModifiedBm ? new Date(lastModifiedBm).getTime() : Date.now();
+        timestamps.sync = lastModifiedSync ? new Date(lastModifiedSync).getTime() : Date.now();
         await chrome.storage.local.set({ [STORAGE_KEYS.SYNC_LAST_TIMESTAMP]: timestamps });
 
         console.log('[AndyTAB Background] 同步上传成功');
