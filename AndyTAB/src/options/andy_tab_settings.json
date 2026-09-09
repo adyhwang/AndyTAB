@@ -8,7 +8,6 @@
   "dateColor": "#ffffff",
   "dateFormat": "YYYY年MM月DD日",
   "dateSize": "30px",
-  "enableNotes": false,
   "enableTodo": false,
   "fontColor": "#ffffff",
   "fontShadow": true,

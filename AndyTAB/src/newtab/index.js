@@ -9,7 +9,7 @@ const STORAGE_KEYS = {
     WEBDAV_CONFIG: 'andy_tab_webdav_config',
     SEARCH_ENGINES: 'andy_tab_search_engines',
     TODOS: 'andy_tab_todos',
-    NOTES: 'andy_tab_notes',
+    ENGINE_ICONS: 'andy_tab_engine_icons',
     SYNC_LAST_TIMESTAMP: 'andy_tab_sync_lasttimestamp'
 };
 
@@ -21,9 +21,8 @@ let totalPages = 1;
 let itemsPerPage = 0;
 let isRenderingShortcuts = false; // 防止renderShortcuts函数重入的锁
 let todos = [];
-let notes = '';
 let isTodoEnabled = false;
-let isNotesEnabled = false;
+let isTodoScrollEnabled = false;
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
@@ -90,21 +89,13 @@ async function init() {
                     renderTodoList();
                 }
             }
-            if (changes[STORAGE_KEYS.NOTES]) {
-                // 笔记数据变化时更新内容
-                if (changes[STORAGE_KEYS.NOTES].newValue) {
-                    notes = changes[STORAGE_KEYS.NOTES].newValue;
-                    document.getElementById('notes-content').value = notes;
-                }
-            }
             
             // 同步上传由 background service worker (src/background.js) 统一处理，这里不再重复触发
         }
     });
     
-    // 初始化待办事项和笔记功能
+    // 初始化待办事项功能
     await initTodos();
-    await initNotes();
     
     // 初始化同步检查
     await initSyncCheck();
@@ -574,7 +565,7 @@ async function loadAndApplySettings() {
     applyTimeDateSettings(settings);
     applySearchEngineSettings(settings);
     applyIconLayoutFontSettings(settings);
-    await applyTodoNotesSettings(settings);
+    await applyTodoSettings(settings);
 }
 
 // 更新背景设置项的可见性
@@ -885,49 +876,85 @@ function applyIconLayoutFontSettings(settings) {
     });
 }
 
-// 应用待办事项和笔记设置
-async function applyTodoNotesSettings(settings) {
-    // 获取待办事项和笔记的启用状态
+// 应用待办事项设置
+async function applyTodoSettings(settings) {
+    // 获取待办事项的启用状态
     isTodoEnabled = settings.enableTodo || false;
-    isNotesEnabled = settings.enableNotes || false;
-    
+    isTodoScrollEnabled = settings.enableTodoScroll || false;
+
     // 更新UI开关状态
     const todoToggle = document.getElementById('enable-todo');
-    const notesToggle = document.getElementById('enable-notes');
-    
+    const todoScrollToggle = document.getElementById('enable-todo-scroll');
     if (todoToggle) {
         todoToggle.checked = isTodoEnabled;
     }
-    if (notesToggle) {
-        notesToggle.checked = isNotesEnabled;
+    if (todoScrollToggle) {
+        todoScrollToggle.checked = isTodoScrollEnabled;
     }
-    
+
     // 更新功能按钮显示
     const todoBtn = document.getElementById('todo-btn');
-    const notesBtn = document.getElementById('notes-btn');
-    
     if (todoBtn) {
         todoBtn.style.display = isTodoEnabled ? 'flex' : 'none';
     }
-    if (notesBtn) {
-        notesBtn.style.display = isNotesEnabled ? 'flex' : 'none';
-    }
-    
+
+    // 更新滚动栏显示
+    updateTodoScrollBarVisibility();
+
     // 监听开关变化
     if (todoToggle) {
         todoToggle.onchange = async () => {
             settings.enableTodo = todoToggle.checked;
             await saveSettings(settings);
-            await applyTodoNotesSettings(settings);
+            await applyTodoSettings(settings);
         };
     }
-    if (notesToggle) {
-        notesToggle.onchange = async () => {
-            settings.enableNotes = notesToggle.checked;
+    if (todoScrollToggle) {
+        todoScrollToggle.onchange = async () => {
+            settings.enableTodoScroll = todoScrollToggle.checked;
             await saveSettings(settings);
-            await applyTodoNotesSettings(settings);
+            await applyTodoSettings(settings);
         };
     }
+}
+
+// 更新待办滚动栏可见性：需同时满足待办功能开启、滚动显示开启、存在未完成待办
+function updateTodoScrollBarVisibility() {
+    const bar = document.getElementById('todo-scroll-bar');
+    if (!bar) return;
+    const hasPending = todos.some(todo => !todo.completed && todo.text && todo.text.trim());
+    bar.style.display = (isTodoEnabled && isTodoScrollEnabled && hasPending) ? 'flex' : 'none';
+}
+
+// 渲染待办滚动栏：水平滚动显示未完成的待办事项
+function renderTodoScrollBar() {
+    const content = document.getElementById('todo-scroll-content');
+    if (!content) return;
+
+    content.innerHTML = '';
+    const pending = todos.filter(todo => !todo.completed && todo.text && todo.text.trim());
+    if (pending.length === 0) {
+        updateTodoScrollBarVisibility();
+        return;
+    }
+
+    // 内容渲染两遍，配合 translateX(-50%) 动画实现无缝循环滚动
+    const items = [...pending, ...pending];
+    items.forEach((todo, index) => {
+        const item = document.createElement('span');
+        item.className = 'todo-scroll-item';
+        item.textContent = todo.text;
+        content.appendChild(item);
+
+        if (index < items.length - 1) {
+            const sep = document.createElement('span');
+            sep.className = 'todo-scroll-sep';
+            sep.textContent = '•';
+            content.appendChild(sep);
+        }
+    });
+
+    updateTodoScrollBarVisibility();
 }
 
 // 初始化待办事项功能
@@ -990,50 +1017,6 @@ async function initTodos() {
     });
 }
 
-// 初始化笔记功能
-async function initNotes() {
-    // 加载笔记数据
-    notes = await storageManager.getData(STORAGE_KEYS.NOTES, '');
-    
-    // 获取DOM元素
-    const notesBtn = document.getElementById('notes-btn');
-    const notesModal = document.getElementById('notes-modal');
-    const notesContent = document.getElementById('notes-content');
-    const saveNotesBtn = document.getElementById('save-notes-btn');
-    const closeBtn = notesModal.querySelector('.close');
-    
-    // 设置笔记内容
-    if (notesContent) {
-        notesContent.value = notes;
-    }
-    
-    // 绑定事件
-    if (notesBtn) {
-        notesBtn.addEventListener('click', () => {
-            notesModal.classList.add('show');
-        });
-    }
-    
-    if (closeBtn) {
-        closeBtn.addEventListener('click', () => {
-            notesModal.classList.remove('show');
-        });
-    }
-    
-    if (saveNotesBtn) {
-        saveNotesBtn.addEventListener('click', async () => {
-            await saveNotes();
-        });
-    }
-    
-    // 点击模态框外部关闭
-    window.addEventListener('click', (e) => {
-        if (e.target === notesModal) {
-            notesModal.classList.remove('show');
-        }
-    });
-}
-
 // 渲染待办事项列表
 function renderTodoList() {
     const todoList = document.getElementById('todo-list');
@@ -1076,13 +1059,16 @@ function renderTodoList() {
         // 组装元素
         actions.appendChild(editBtn);
         actions.appendChild(deleteBtn);
-        
+
         todoItem.appendChild(checkbox);
         todoItem.appendChild(text);
         todoItem.appendChild(actions);
-        
+
         todoList.appendChild(todoItem);
     });
+
+    // 同步更新滚动栏
+    renderTodoScrollBar();
 }
 
 // 切换待办事项完成状态
@@ -1159,29 +1145,6 @@ async function deleteTodo(index) {
     todos.splice(index, 1);
     await storageManager.saveData(STORAGE_KEYS.TODOS, todos);
     renderTodoList();
-}
-
-// 保存笔记
-async function saveNotes() {
-    const notesContent = document.getElementById('notes-content');
-    if (notesContent) {
-        notes = notesContent.value;
-        await storageManager.saveData(STORAGE_KEYS.NOTES, notes);
-        
-        // 显示保存状态
-        const saveStatus = document.createElement('div');
-        saveStatus.className = 'notes-save-status';
-        saveStatus.textContent = '笔记已保存';
-        saveStatus.style.display = 'block';
-        
-        const notesContainer = document.querySelector('.notes-container');
-        notesContainer.appendChild(saveStatus);
-        
-        // 2秒后隐藏状态
-        setTimeout(() => {
-            saveStatus.remove();
-        }, 2000);
-    }
 }
 
 // 应用时间日期设置
@@ -1309,19 +1272,114 @@ async function getSearchEngines() {
     });
 }
 
+// 带超时的图片加载，超时或失败返回 null；crossOrigin 为 true 时以匿名方式请求（用于 canvas 导出）
+function loadImage(src, crossOrigin, timeout = 5000) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        if (crossOrigin) {
+            img.crossOrigin = 'anonymous';
+        }
+        const timer = setTimeout(() => resolve(null), timeout);
+        img.onload = () => {
+            clearTimeout(timer);
+            resolve(img);
+        };
+        img.onerror = () => {
+            clearTimeout(timer);
+            resolve(null);
+        };
+        img.src = src;
+    });
+}
+
+// 获取引擎图标：优先跨域加载并转 base64 用于缓存；受限则回退普通加载（仅本次显示，不入缓存）
+async function fetchEngineIcon(origin) {
+    const iconUrl = origin + '/favicon.ico';
+
+    const img = await loadImage(iconUrl, true);
+    if (img) {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            canvas.getContext('2d').drawImage(img, 0, 0, 32, 32);
+            return canvas.toDataURL('image/png');
+        } catch (e) {
+            // canvas 导出失败（跨域污染），回退为普通加载
+        }
+    }
+
+    const fallback = await loadImage(iconUrl, false);
+    return fallback ? iconUrl : null;
+}
+
+// 创建图标元素，加载成功后替换占位符；加载失败则保留占位符
+function attachEngineIcon(placeholder, src) {
+    const img = document.createElement('img');
+    img.className = 'engine-icon';
+    img.alt = '';
+    img.onload = () => {
+        if (placeholder.isConnected) {
+            placeholder.replaceWith(img);
+        }
+    };
+    img.src = src;
+}
+
 // 渲染搜索引擎下拉菜单
 async function renderEngineDropdown() {
     const engineDropdown = document.getElementById('engine-dropdown');
     const engines = await getSearchEngines();
-    
+
     engineDropdown.innerHTML = '';
-    
+
+    // 读取图标缓存（base64 数据，按站点 origin 存储）
+    const iconCache = await storageManager.getData(STORAGE_KEYS.ENGINE_ICONS, {});
+    let cacheUpdated = false;
+    const fetchTasks = [];
+
     for (const [key, engine] of Object.entries(engines)) {
         const engineItem = document.createElement('div');
         engineItem.className = 'engine-item';
         engineItem.dataset.engine = key;
-        engineItem.textContent = engine.name;
-        
+
+        // 引擎图标：加载前显示占位符，图标就绪后替换
+        const placeholder = document.createElement('span');
+        placeholder.className = 'engine-icon engine-icon-placeholder';
+        placeholder.textContent = '🔍';
+        engineItem.appendChild(placeholder);
+
+        const name = document.createElement('span');
+        name.textContent = engine.name;
+        engineItem.appendChild(name);
+
+        // 解析引擎站点 origin 并加载图标
+        try {
+            const origin = new URL(engine.url.replace('%s', 'q')).origin;
+            const cachedIcon = iconCache[origin];
+            if (cachedIcon) {
+                // 缓存命中，直接使用本地数据
+                attachEngineIcon(placeholder, cachedIcon);
+            } else {
+                // 各引擎独立获取、互不影响；失败的保留占位符，成功的写入缓存
+                fetchTasks.push(
+                    fetchEngineIcon(origin).then(iconSrc => {
+                        if (!iconSrc) return;
+                        // 仅 base64 数据写入缓存
+                        if (iconSrc.startsWith('data:')) {
+                            iconCache[origin] = iconSrc;
+                            cacheUpdated = true;
+                        }
+                        if (placeholder.isConnected) {
+                            attachEngineIcon(placeholder, iconSrc);
+                        }
+                    })
+                );
+            }
+        } catch (e) {
+            // 引擎 URL 无效，保留占位图标
+        }
+
         // 添加点击事件
         engineItem.addEventListener('click', async function() {
             const engine = this.dataset.engine;
@@ -1347,6 +1405,14 @@ async function renderEngineDropdown() {
         
         engineDropdown.appendChild(engineItem);
     }
+
+    // 图标获取在后台完成，不阻塞页面初始化；全部完成后写入缓存，
+    // 确保成功的图标不因其他引擎失败而丢失
+    Promise.all(fetchTasks).then(() => {
+        if (cacheUpdated) {
+            storageManager.saveData(STORAGE_KEYS.ENGINE_ICONS, iconCache);
+        }
+    });
 }
 
 // 初始化搜索功能
@@ -4342,9 +4408,9 @@ async function saveSettings() {
         iconBorderRadius: `${document.getElementById('icon-border-radius')?.value || '8'}px`,
         iconOpacity: document.getElementById('icon-opacity')?.value || '1',
         iconSize: `${document.getElementById('icon-size')?.value || '48'}px`,
-        // 待办事项和笔记设置
+        // 待办事项设置
         enableTodo: document.getElementById('enable-todo')?.checked || false,
-        enableNotes: document.getElementById('enable-notes')?.checked || false,
+        enableTodoScroll: document.getElementById('enable-todo-scroll')?.checked || false,
         // 布局设置
         rows: document.getElementById('rows')?.value || '3',
         columns: document.getElementById('columns')?.value || '6',

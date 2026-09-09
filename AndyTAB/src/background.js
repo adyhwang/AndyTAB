@@ -10,7 +10,6 @@ const STORAGE_KEYS = {
     WEBDAV_CONFIG: 'andy_tab_webdav_config',
     SEARCH_ENGINES: 'andy_tab_search_engines',
     TODOS: 'andy_tab_todos',
-    NOTES: 'andy_tab_notes',
     SYNC_LAST_TIMESTAMP: 'andy_tab_sync_lasttimestamp'
 };
 
@@ -64,7 +63,6 @@ async function getAllData() {
         STORAGE_KEYS.SETTINGS,
         STORAGE_KEYS.SEARCH_ENGINES,
         STORAGE_KEYS.TODOS,
-        STORAGE_KEYS.NOTES,
         STORAGE_KEYS.WEBDAV_CONFIG
     ]);
     const bookmarks = await getBrowserBookmarks();
@@ -74,7 +72,6 @@ async function getAllData() {
         settings: result[STORAGE_KEYS.SETTINGS] || {},
         searchEngines: result[STORAGE_KEYS.SEARCH_ENGINES] || {},
         todos: result[STORAGE_KEYS.TODOS] || [],
-        notes: result[STORAGE_KEYS.NOTES] || '',
         webdavConfig: result[STORAGE_KEYS.WEBDAV_CONFIG] || null,
         bookmarks: bookmarks
     };
@@ -148,8 +145,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         STORAGE_KEYS.SHORTCUTS,
         STORAGE_KEYS.SETTINGS,
         STORAGE_KEYS.SEARCH_ENGINES,
-        STORAGE_KEYS.TODOS,
-        STORAGE_KEYS.NOTES
+        STORAGE_KEYS.TODOS
     ];
 
     const hasSyncableChange = Object.keys(changes).some(key =>

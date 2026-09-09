@@ -23,15 +23,27 @@
                         <span id="current-engine-name">Google</span>
                         <span class="engine-arrow">▼</span>
                     </button>
-                    <div class="search-engine-dropdown" id="engine-dropdown">
-                        <div class="engine-item" data-engine="google">Google</div>
-                        <div class="engine-item" data-engine="baidu">百度</div>
-                        <div class="engine-item" data-engine="bing">Bing</div>
-                        <div class="engine-item" data-engine="duckduckgo">DuckDuckGo</div>
-                    </div>
                 </div>
                 <input type="text" id="search-input" placeholder="搜索...">
                 <button id="search-btn">🔍</button>
+                <div class="search-engine-dropdown" id="engine-dropdown">
+                    <div class="engine-item" data-engine="google">
+                        <img class="engine-icon" src="https://www.google.com/favicon.ico" alt="">
+                        <span>Google</span>
+                    </div>
+                    <div class="engine-item" data-engine="baidu">
+                        <img class="engine-icon" src="https://www.baidu.com/favicon.ico" alt="">
+                        <span>百度</span>
+                    </div>
+                    <div class="engine-item" data-engine="bing">
+                        <img class="engine-icon" src="https://www.bing.com/favicon.ico" alt="">
+                        <span>Bing</span>
+                    </div>
+                    <div class="engine-item" data-engine="duckduckgo">
+                        <img class="engine-icon" src="https://duckduckgo.com/favicon.ico" alt="">
+                        <span>DuckDuckGo</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -42,8 +54,12 @@
 
         <!-- 功能按钮组 -->
         <div class="feature-buttons">
+            <div id="todo-scroll-bar" class="todo-scroll-bar" style="display: none;">
+                <div class="todo-scroll-track">
+                    <div class="todo-scroll-content" id="todo-scroll-content"></div>
+                </div>
+            </div>
             <button id="todo-btn" class="feature-btn" title="待办事项" style="display: none;">☑️</button>
-            <button id="notes-btn" class="feature-btn" title="笔记" style="display: none;">📝</button>
             <button id="open-settings" class="feature-btn" title="设置">⚙️</button>
         </div>
     </div>
@@ -291,13 +307,13 @@
                         </div>
 
                         <div class="setting-item">
-                            <label class="setting-label">开启笔记:</label>
+                            <label class="setting-label">滚动显示待办事项:</label>
                             <div class="setting-checkbox">
-                                <input type="checkbox" id="enable-notes">
+                                <input type="checkbox" id="enable-todo-scroll">
                                 <label class="toggle-switch">
                                     <span class="toggle-slider"></span>
                                 </label>
-                                <span>开启后，显示笔记按钮</span>
+                                <span>开启后，在待办按钮左侧滚动显示未完成待办</span>
                             </div>
                         </div>
                     </section>
@@ -716,23 +732,6 @@
                         </div>
                         <div class="form-actions" style="margin-top: 1rem;">
                             <button id="add-todo-btn" class="btn btn-primary">添加待办事项</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 笔记弹窗 -->
-            <div class="modal" id="notes-modal">
-                <div class="modal-content modal-wide notes-modal-content">
-                    <span class="close">&times;</span>
-                    <h3>笔记</h3>
-                    <div class="">
-                        <!-- 笔记内容 -->
-                        <div class="notes-container" style="width: 99%;">
-                            <textarea id="notes-content" placeholder="在这里输入你的笔记..." rows="15"></textarea>
-                            <div class="form-actions" style="margin-top: 1rem;">
-                                <button type="button" id="save-notes-btn" class="btn btn-primary">保存笔记</button>
-                            </div>
                         </div>
                     </div>
                 </div>

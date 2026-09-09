@@ -11,7 +11,6 @@ export const STORAGE_KEYS = {
     SEARCH_ENGINES: 'andy_tab_search_engines',
     OFFLINE_CACHE: 'andy_tab_offline_cache',
     TODOS: 'andy_tab_todos',
-    NOTES: 'andy_tab_notes',
     SYNC_LAST_TIMESTAMP: 'andy_tab_sync_lasttimestamp'
 };
 
@@ -233,7 +232,6 @@ class StorageManager {
             settings: await this.getData(STORAGE_KEYS.SETTINGS, {}),
             searchEngines: await this.getData(STORAGE_KEYS.SEARCH_ENGINES, {}),
             todos: await this.getData(STORAGE_KEYS.TODOS, []),
-            notes: await this.getData(STORAGE_KEYS.NOTES, ''),
             webdavConfig: await this.getWebDAVConfig(),
             bookmarks: await this._getBrowserBookmarks()
         };
@@ -482,11 +480,7 @@ class StorageManager {
             if (data.todos) {
                 await this.saveData(STORAGE_KEYS.TODOS, data.todos);
             }
-            
-            if (data.notes) {
-                await this.saveData(STORAGE_KEYS.NOTES, data.notes);
-            }
-            
+
             if (data.webdavConfig) {
                 await this.saveWebDAVConfig(data.webdavConfig);
             }
