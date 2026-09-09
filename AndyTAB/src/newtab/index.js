@@ -1292,6 +1292,27 @@ function loadImage(src, crossOrigin, timeout = 5000) {
     });
 }
 
+// 引擎名称超出固定宽度时逐步缩小文字，缩到下限仍放不下则由 CSS 省略号截断
+function fitEngineNames() {
+    document.querySelectorAll('.search-engine-dropdown .engine-name').forEach(el => {
+        el.style.fontSize = ''; // 恢复默认后测量
+        // overflow:hidden 下 scrollWidth 含不可见部分，测量不准；
+        // 用临时 span 包裹文本获得真实宽度
+        const measure = document.createElement('span');
+        measure.textContent = el.textContent;
+        measure.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:inherit;';
+        el.appendChild(measure);
+        const textWidth = measure.offsetWidth;
+        measure.remove();
+
+        if (textWidth <= el.clientWidth) return;
+
+        const ratio = el.clientWidth / textWidth;
+        const target = Math.max(13.6 * ratio, 9);
+        el.style.fontSize = target + 'px';
+    });
+}
+
 // 获取引擎图标：优先跨域加载并转 base64 用于缓存；受限则回退普通加载（仅本次显示，不入缓存）
 async function fetchEngineIcon(origin) {
     const iconUrl = origin + '/favicon.ico';
@@ -1350,6 +1371,7 @@ async function renderEngineDropdown() {
         engineItem.appendChild(placeholder);
 
         const name = document.createElement('span');
+        name.className = 'engine-name';
         name.textContent = engine.name;
         engineItem.appendChild(name);
 
@@ -1413,6 +1435,11 @@ async function renderEngineDropdown() {
             storageManager.saveData(STORAGE_KEYS.ENGINE_ICONS, iconCache);
         }
     });
+
+    // 若下拉当前可见，立即适配名称宽度
+    if (engineDropdown.classList.contains('show')) {
+        fitEngineNames();
+    }
 }
 
 // 初始化搜索功能
@@ -1447,6 +1474,9 @@ async function initSearch() {
         e.stopPropagation(); // 防止事件冒泡
         this.classList.toggle('active');
         engineDropdown.classList.toggle('show');
+        if (engineDropdown.classList.contains('show')) {
+            fitEngineNames();
+        }
     });
     
     // 点击页面其他地方关闭下拉菜单
