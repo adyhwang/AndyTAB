@@ -1516,8 +1516,138 @@ async function initSearch() {
     const searchBtn = document.getElementById('search-btn');
     const engineSelectBtn = document.getElementById('search-engine-select');
     const engineDropdown = document.getElementById('engine-dropdown');
+    const suggestionsBox = document.getElementById('search-suggestions');
 
     await renderEngineDropdown();
+
+    let suggestionItems = [];
+    let suggestionActive = -1;
+    let suggestionTimer = null;
+
+    function hideSuggestions() {
+        suggestionActive = -1;
+        suggestionsBox.classList.remove('show');
+        suggestionsBox.innerHTML = '';
+    }
+
+    function getDomain(url) {
+        try {
+            return new URL(url).hostname;
+        } catch (e) {
+            return url;
+        }
+    }
+
+    function getFaviconFor(url) {
+        return `https://favicon.im/${getDomain(url)}?larger=true`;
+    }
+
+    function escapeSuggestionText(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function bookmarksSearch(query) {
+        return new Promise((resolve) => {
+            if (!chrome.bookmarks || !chrome.bookmarks.search) return resolve([]);
+            chrome.bookmarks.search(query, (nodes) => resolve(Array.isArray(nodes) ? nodes : []));
+        });
+    }
+
+    function historySearch(query) {
+        return new Promise((resolve) => {
+            if (!chrome.history || !chrome.history.search) return resolve([]);
+            chrome.history.search({ text: query, maxResults: 15 }, (items) => resolve(Array.isArray(items) ? items : []));
+        });
+    }
+
+    function matchesQuery(text, q) {
+        return (text || '').toLowerCase().includes(q);
+    }
+
+    async function collectSuggestions(query) {
+        const q = query.toLowerCase();
+
+        const shortcutResult = await chrome.storage.local.get([STORAGE_KEYS.SHORTCUTS]);
+        const shortcuts = (shortcutResult[STORAGE_KEYS.SHORTCUTS] || [])
+            .filter((s) => matchesQuery(s.name, q) || matchesQuery(s.url, q))
+            .map((s) => ({ title: s.name, url: s.url, icon: s.iconType === 'custom' && s.icon ? s.icon : getFaviconFor(s.url) }));
+
+        const bookmarkNodes = await bookmarksSearch(query);
+        const bookmarks = bookmarkNodes
+            .filter((n) => n.url)
+            .filter((n) => matchesQuery(n.title, q) || matchesQuery(n.url, q))
+            .map((n) => ({ title: n.title || n.url, url: n.url, icon: getFaviconFor(n.url) }));
+
+        const historyItems = await historySearch(query);
+        const history = historyItems
+            .filter((h) => h.url && /^https?:/i.test(h.url))
+            .filter((h) => matchesQuery(h.title, q) || matchesQuery(h.url, q))
+            .map((h) => ({ title: h.title || h.url, url: h.url, icon: getFaviconFor(h.url) }));
+
+        const seen = new Set();
+        const merged = [];
+        for (const item of [...shortcuts, ...bookmarks, ...history]) {
+            const key = item.url.replace(/\/+$/, '').toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(item);
+            if (merged.length >= 8) break;
+        }
+        return merged;
+    }
+
+    function renderSuggestions(items) {
+        suggestionItems = items;
+        suggestionActive = -1;
+        suggestionsBox.innerHTML = items
+            .map((item, i) => `
+                <div class="suggestion-item" data-index="${i}">
+                    <img class="suggestion-icon" src="${escapeSuggestionText(item.icon)}" alt="" onerror="this.style.visibility='hidden'">
+                    <div class="suggestion-text">
+                        <span class="suggestion-title">${escapeSuggestionText(item.title)}</span>
+                        <span class="suggestion-url">${escapeSuggestionText(item.url)}</span>
+                    </div>
+                </div>
+            `)
+            .join('');
+        if (items.length > 0) {
+            suggestionsBox.classList.add('show');
+        } else {
+            hideSuggestions();
+        }
+    }
+
+    function setActiveSuggestion(index) {
+        const nodes = suggestionsBox.querySelectorAll('.suggestion-item');
+        nodes.forEach((n) => n.classList.remove('active'));
+        suggestionActive = index;
+        if (index >= 0 && nodes[index]) {
+            nodes[index].classList.add('active');
+            nodes[index].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    async function openSuggestion(item) {
+        const settings = await getSettings();
+        const target = settings.openSearchInNewTab !== false ? '_blank' : '_self';
+        window.open(item.url, target);
+        hideSuggestions();
+    }
+
+    function updateSuggestions() {
+        const query = searchInput.value.trim();
+        clearTimeout(suggestionTimer);
+        if (!query) {
+            hideSuggestions();
+            return;
+        }
+        suggestionTimer = setTimeout(async () => {
+            const items = await collectSuggestions(query);
+            renderSuggestions(items);
+        }, 150);
+    }
 
     async function performSearch() {
         const query = searchInput.value.trim();
@@ -1549,17 +1679,46 @@ async function initSearch() {
             engineSelectBtn.classList.remove('active');
             engineDropdown.classList.remove('show');
         }
+        if (!e.target.closest('.search-bar')) {
+            hideSuggestions();
+        }
     });
 
     engineDropdown.addEventListener('click', function(e) {
         e.stopPropagation();
     });
 
+    suggestionsBox.addEventListener('mousedown', function(e) {
+        const node = e.target.closest('.suggestion-item');
+        if (!node) return;
+        e.preventDefault();
+        const item = suggestionItems[parseInt(node.dataset.index, 10)];
+        if (item) {
+            openSuggestion(item);
+        }
+    });
+
     searchBtn.addEventListener('click', performSearch);
 
-    searchInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            performSearch();
+    searchInput.addEventListener('input', updateSuggestions);
+
+    searchInput.addEventListener('keydown', function(e) {
+        const suggestionsShown = suggestionsBox.classList.contains('show');
+        if (suggestionsShown && e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActiveSuggestion(Math.min(suggestionActive + 1, suggestionItems.length - 1));
+        } else if (suggestionsShown && e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActiveSuggestion(Math.max(suggestionActive - 1, 0));
+        } else if (suggestionsShown && e.key === 'Escape') {
+            hideSuggestions();
+        } else if (e.key === 'Enter') {
+            if (suggestionsShown && suggestionActive >= 0 && suggestionItems[suggestionActive]) {
+                e.preventDefault();
+                openSuggestion(suggestionItems[suggestionActive]);
+            } else {
+                performSearch();
+            }
         }
     });
 
@@ -2311,6 +2470,10 @@ async function handleWheelNavigation(e) {
     const isManageEnginesModalOpen = manageEnginesModal?.classList.contains('show');
 
     if (isSettingsOpen || isAddShortcutModalOpen || isManageEnginesModalOpen) {
+        return;
+    }
+
+    if (e.target.closest && e.target.closest('.search-suggestions')) {
         return;
     }
 

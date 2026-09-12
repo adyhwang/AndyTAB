@@ -146,7 +146,6 @@ body::before {
 
 .engine-item {
     display: flex;
-    flex-direction: column;
     align-items: center;
     gap: 6px;
     padding: 10px 16px;
@@ -155,6 +154,7 @@ body::before {
     cursor: pointer;
     transition: all 0.2s ease;
     font-size: 0.85rem;
+    flex-direction: row;
 }
 
 .search-engine-dropdown .engine-item {
@@ -178,6 +178,73 @@ body::before {
 .engine-item.active {
     background: #e8f0fe;
     color: #1a73e8;
+}
+
+.search-suggestions {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    z-index: 999;
+    max-height: 320px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    display: none;
+}
+
+.search-suggestions.show {
+    display: block;
+}
+
+.suggestion-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.suggestion-item.active,
+.suggestion-item:hover {
+    background: #f5f5f5;
+}
+
+.suggestion-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    object-fit: contain;
+    flex-shrink: 0;
+    background: #f5f5f5;
+}
+
+.suggestion-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.suggestion-title {
+    font-size: 0.9rem;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.suggestion-url {
+    font-size: 0.75rem;
+    color: #999;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .engine-icon {
