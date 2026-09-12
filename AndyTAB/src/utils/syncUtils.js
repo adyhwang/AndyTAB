@@ -1,6 +1,3 @@
-// 同步工具函数 - storage.js 和 background.js 共用
-
-// HTML转义
 export function escapeHtml(text) {
     if (!text) return '';
     return text
@@ -10,7 +7,6 @@ export function escapeHtml(text) {
         .replace(/"/g, '&quot;');
 }
 
-// 将快捷方式转换为 favorites.txt 格式
 export function convertShortcutsToFavoritesTxt(shortcuts) {
     if (!Array.isArray(shortcuts)) return '';
 
@@ -26,7 +22,6 @@ export function convertShortcutsToFavoritesTxt(shortcuts) {
     }).join('\n');
 }
 
-// 将书签转换为 bookmarks.html 格式（Netscape Bookmark格式）
 export function convertBookmarksToHtml(bookmarks) {
     const generateBookmarkHtml = (bookmark, level = 0, isBookmarkBar = false) => {
         const indent = '    '.repeat(level);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AndyTAB",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "description": "自定义新标签页扩展，支持WebDAV数据同步",
   "author": "Andy",
   "action": {
@@ -22,6 +22,12 @@
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
+  },
+  "sandbox": {
+    "pages": ["src/newtab/widget-sandbox.html"]
+  },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval'; child-src 'self';"
   },
   "permissions": [
     "storage",

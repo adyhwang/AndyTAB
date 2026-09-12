@@ -1,5 +1,3 @@
-// WebDAV客户端实现 - 重新编写版本
-
 class WebDAVClient {
     constructor(config) {
         this.config = {
@@ -8,14 +6,12 @@ class WebDAVClient {
             password: config.password || '',
             timeout: config.timeout || 10000
         };
-        
-        // 确保URL以斜杠结尾
+
         if (!this.config.url.endsWith('/')) {
             this.config.url += '/';
         }
     }
-    
-    // 生成认证头
+
     getAuthHeaders() {
         if (this.config.username && this.config.password) {
             const auth = btoa(`${this.config.username}:${this.config.password}`);
@@ -23,58 +19,51 @@ class WebDAVClient {
         }
         return {};
     }
-    
-    // 构建请求选项
+
     buildRequestOptions(method, body = null, contentType = null) {
         const headers = {
             ...this.getAuthHeaders()
         };
-        
+
         if (contentType) {
             headers['Content-Type'] = contentType;
         }
-        
+
         const options = {
             method: method,
             headers: headers
         };
-        
+
         if (body) {
             options.body = typeof body === 'string' ? body : JSON.stringify(body);
         }
-        
+
         return options;
     }
-    
-    // 发送请求
+
     async sendRequest(path, options) {
         const url = `${this.config.url}${path}`;
-        let timeoutId; // 将timeoutId声明移到try块外部
-        
+        let timeoutId;
+
         try {
-            // 创建AbortController用于超时控制
+
             const controller = new AbortController();
             timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
-            
-            // 构建完整的请求选项
+
             const fetchOptions = {
                 ...options,
                 signal: controller.signal,
                 mode: 'cors',
                 credentials: 'omit'
             };
-            
-            // 发送请求
+
             const response = await fetch(url, fetchOptions);
-            
-            // 清除超时定时器
+
             clearTimeout(timeoutId);
-            
-            // 检查响应状态
+
             if (!response.ok) {
                 const errorInfo = this._classifyError(response.status, response.statusText);
-                
-                // 尝试获取更详细的错误信息
+
                 let detailMessage = '';
                 try {
                     const errorText = await response.text();
@@ -82,21 +71,19 @@ class WebDAVClient {
                         detailMessage = errorText;
                     }
                 } catch (e) {
-                    // 如果无法获取错误文本，忽略
+
                 }
-                
+
                 const error = new Error(errorInfo.message + (detailMessage ? ` - ${detailMessage}` : ''));
                 error.type = errorInfo.type;
                 error.status = response.status;
                 throw error;
             }
-            
-            // 对于204 No Content响应，直接返回null
+
             if (response.status === 204) {
                 return null;
             }
-            
-            // 尝试解析JSON，失败则返回文本
+
             const contentType = response.headers.get('content-type');
             if (contentType && contentType.includes('application/json')) {
                 return await response.json();
@@ -104,17 +91,15 @@ class WebDAVClient {
                 return await response.text();
             }
         } catch (error) {
-            // 清除超时定时器
+
             if (timeoutId) {
                 clearTimeout(timeoutId);
             }
-            
-            // 如果错误已经被分类，直接抛出
+
             if (error.type) {
                 throw error;
             }
-            
-            // 处理不同类型的网络错误
+
             if (error.name === 'AbortError') {
                 const timeoutError = new Error('请求超时，请检查网络连接或增加超时时间');
                 timeoutError.type = 'TIMEOUT';
@@ -134,7 +119,6 @@ class WebDAVClient {
         }
     }
 
-    // 错误分类方法
     _classifyError(status, statusText) {
         switch (status) {
             case 401:
@@ -185,20 +169,18 @@ class WebDAVClient {
         }
     }
 
-    // 测试连接
     async testConnection() {
         try {
             const propfindOptions = this.buildRequestOptions('PROPFIND', null, 'application/xml');
             propfindOptions.headers['Depth'] = '0';
-            
+
             await this.sendRequest('', propfindOptions);
             return { success: true, message: '连接成功' };
         } catch (error) {
             console.error('PROPFIND请求失败：', error);
-            
-            // 提供更详细的错误信息
+
             let errorMessage = error.message;
-            
+
             if (error.message.includes('401')) {
                 errorMessage = '认证失败：用户名或密码错误';
             } else if (error.message.includes('403')) {
@@ -222,12 +204,11 @@ class WebDAVClient {
             } else {
                 errorMessage = `连接失败：${error.message}`;
             }
-            
+
             return { success: false, message: errorMessage };
         }
     }
-    
-    // 获取文件内容
+
     async getFile(path) {
         try {
             const options = this.buildRequestOptions('GET');
@@ -236,8 +217,7 @@ class WebDAVClient {
             throw new Error(`获取文件失败: ${error.message}`);
         }
     }
-    
-    // 上传文件
+
     async putFile(path, content, contentType = null) {
         try {
             const options = this.buildRequestOptions('PUT', content, contentType);
@@ -247,8 +227,7 @@ class WebDAVClient {
             throw new Error(`上传文件失败: ${error.message}`);
         }
     }
-    
-    // 删除文件
+
     async deleteFile(path) {
         try {
             const options = this.buildRequestOptions('DELETE');
@@ -258,8 +237,7 @@ class WebDAVClient {
             throw new Error(`删除文件失败: ${error.message}`);
         }
     }
-    
-    // 检查文件是否存在
+
     async exists(path) {
         try {
             const options = this.buildRequestOptions('HEAD');
@@ -270,7 +248,6 @@ class WebDAVClient {
         }
     }
 
-    // 获取文件最后修改时间（HEAD请求，不依赖XML解析，兼容Service Worker环境）
     async getLastModified(path) {
         try {
             const url = `${this.config.url}${path}`;
@@ -297,7 +274,6 @@ class WebDAVClient {
         }
     }
 
-    // 获取文件信息（包括修改时间）
     async getFileInfo(path) {
         try {
             const options = this.buildRequestOptions('PROPFIND');
@@ -305,7 +281,6 @@ class WebDAVClient {
 
             const responseText = await this.sendRequest(path, options);
 
-            // 解析XML响应
             const parser = new DOMParser();
             const doc = parser.parseFromString(responseText, 'application/xml');
             const response = doc.getElementsByTagName('d:response')[0];
@@ -317,7 +292,6 @@ class WebDAVClient {
             const href = response.getElementsByTagName('d:href')[0]?.textContent || '';
             const isCollection = response.getElementsByTagName('d:collection').length > 0;
 
-            // 提取修改时间
             let modified = null;
             let size = 0;
             const propstat = response.getElementsByTagName('d:propstat')[0];
@@ -346,8 +320,7 @@ class WebDAVClient {
             throw new Error(`获取文件信息失败: ${error.message}`);
         }
     }
-    
-    // 创建目录
+
     async createDirectory(path) {
         try {
             const options = this.buildRequestOptions('MKCOL');
@@ -357,41 +330,36 @@ class WebDAVClient {
             throw new Error(`创建目录失败: ${error.message}`);
         }
     }
-    
-    // 列出目录内容
+
     async listDirectory(path = '') {
         try {
             const options = this.buildRequestOptions('PROPFIND');
             options.headers['Depth'] = '1';
-            
+
             const responseText = await this.sendRequest(path, options);
-            // 解析XML响应，提取文件列表
+
             return this.parseDirectoryListing(responseText);
         } catch (error) {
             throw new Error(`列出目录失败: ${error.message}`);
         }
     }
-    
-    // 解析WebDAV目录列表XML响应
+
     parseDirectoryListing(xmlText) {
-        // 简单的XML解析，提取文件名和属性
+
         const parser = new DOMParser();
         const doc = parser.parseFromString(xmlText, 'application/xml');
         const response = doc.getElementsByTagName('d:response');
-        
+
         const items = [];
-        
+
         for (let i = 0; i < response.length; i++) {
             const href = response[i].getElementsByTagName('d:href')[0]?.textContent || '';
             const isCollection = response[i].getElementsByTagName('d:collection').length > 0;
-            
-            // 跳过当前目录和父目录
+
             if (href === '' || href === '../') continue;
-            
-            // 提取文件名
+
             const fileName = href.split('/').filter(Boolean).pop();
-            
-            // 提取修改时间
+
             let modified = null;
             const propstat = response[i].getElementsByTagName('d:propstat')[0];
             if (propstat) {
@@ -403,7 +371,7 @@ class WebDAVClient {
                     }
                 }
             }
-            
+
             if (fileName) {
                 items.push({
                     name: fileName,
@@ -413,7 +381,7 @@ class WebDAVClient {
                 });
             }
         }
-        
+
         return items;
     }
 }

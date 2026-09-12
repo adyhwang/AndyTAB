@@ -1,6 +1,3 @@
-// Background Service Worker - 监听数据变动并自动触发同步上传
-// 解决 newtab 未打开时无法监控快捷方式和收藏夹变动的问题
-
 import WebDAVClient from './utils/webdav.js';
 import { convertShortcutsToFavoritesTxt, convertBookmarksToHtml } from './utils/syncUtils.js';
 
@@ -10,17 +7,16 @@ const STORAGE_KEYS = {
     WEBDAV_CONFIG: 'andy_tab_webdav_config',
     SEARCH_ENGINES: 'andy_tab_search_engines',
     TODOS: 'andy_tab_todos',
+    WIDGETS: 'andy_tab_widgets',
     SYNC_LAST_TIMESTAMP: 'andy_tab_sync_lasttimestamp'
 };
 
-// 防抖定时器
 let syncDebounceTimer = null;
 let bookmarkChangeTimer = null;
-// 同步锁（支持嵌套引用计数）
+
 let syncInProgress = false;
 let syncRefCount = 0;
 
-// 初始化 WebDAV 客户端
 async function initWebDAVClient() {
     const result = await chrome.storage.local.get([STORAGE_KEYS.WEBDAV_CONFIG]);
     const config = result[STORAGE_KEYS.WEBDAV_CONFIG];
@@ -30,24 +26,21 @@ async function initWebDAVClient() {
     return null;
 }
 
-// 获取存储路径
 async function getStoragePath() {
     const result = await chrome.storage.local.get([STORAGE_KEYS.WEBDAV_CONFIG]);
     const config = result[STORAGE_KEYS.WEBDAV_CONFIG];
     return config?.storagePath || 'AndyTab';
 }
 
-// 确保存储目录存在
 async function ensureStorageDirectory(webdavClient) {
     try {
         const storagePath = await getStoragePath();
         await webdavClient.createDirectory(storagePath);
     } catch (error) {
-        // 目录已存在会报错，这是正常的
+
     }
 }
 
-// 获取浏览器书签
 function getBrowserBookmarks() {
     return new Promise((resolve) => {
         chrome.bookmarks.getTree((bookmarkTreeNodes) => {
@@ -56,13 +49,13 @@ function getBrowserBookmarks() {
     });
 }
 
-// 获取所有数据
 async function getAllData() {
     const result = await chrome.storage.local.get([
         STORAGE_KEYS.SHORTCUTS,
         STORAGE_KEYS.SETTINGS,
         STORAGE_KEYS.SEARCH_ENGINES,
         STORAGE_KEYS.TODOS,
+        STORAGE_KEYS.WIDGETS,
         STORAGE_KEYS.WEBDAV_CONFIG
     ]);
     const bookmarks = await getBrowserBookmarks();
@@ -72,12 +65,12 @@ async function getAllData() {
         settings: result[STORAGE_KEYS.SETTINGS] || {},
         searchEngines: result[STORAGE_KEYS.SEARCH_ENGINES] || {},
         todos: result[STORAGE_KEYS.TODOS] || [],
+        widgets: result[STORAGE_KEYS.WIDGETS] || [],
         webdavConfig: result[STORAGE_KEYS.WEBDAV_CONFIG] || null,
         bookmarks: bookmarks
     };
 }
 
-// 上传同步数据到云端（精简版，不依赖 DOMParser）
 async function uploadSyncData() {
     if (syncInProgress) return;
     syncInProgress = true;
@@ -91,22 +84,17 @@ async function uploadSyncData() {
         await ensureStorageDirectory(webdavClient);
         const storagePath = await getStoragePath();
 
-        // 获取本地数据
         const data = await getAllData();
         const bookmarks = await getBrowserBookmarks();
 
-        // 1. 上传 favorites.txt
         const favoritesContent = convertShortcutsToFavoritesTxt(data.shortcuts);
         await webdavClient.putFile(`${storagePath}/favorites.txt`, favoritesContent);
 
-        // 2. 上传 bookmarks.html
         const bookmarksHtml = convertBookmarksToHtml(bookmarks);
         await webdavClient.putFile(`${storagePath}/bookmarks.html`, bookmarksHtml);
 
-        // 3. 上传 andy_tab_sync.json
         await webdavClient.putFile(`${storagePath}/andy_tab_sync.json`, JSON.stringify(data, null, 2));
 
-        // 获取3个文件的实际修改时间（HEAD请求，不依赖XML解析，兼容Service Worker）
         const [lastModifiedFav, lastModifiedBm, lastModifiedSync] = await Promise.all([
             webdavClient.getLastModified(`${storagePath}/favorites.txt`),
             webdavClient.getLastModified(`${storagePath}/bookmarks.html`),
@@ -127,7 +115,6 @@ async function uploadSyncData() {
     }
 }
 
-// 带防抖的上传（1.5秒防抖）
 function uploadSyncDataWithDebounce() {
     if (syncDebounceTimer) {
         clearTimeout(syncDebounceTimer);
@@ -137,7 +124,6 @@ function uploadSyncDataWithDebounce() {
     }, 1500);
 }
 
-// ========== 监听 chrome.storage 变化 ==========
 chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
 
@@ -145,7 +131,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         STORAGE_KEYS.SHORTCUTS,
         STORAGE_KEYS.SETTINGS,
         STORAGE_KEYS.SEARCH_ENGINES,
-        STORAGE_KEYS.TODOS
+        STORAGE_KEYS.TODOS,
+        STORAGE_KEYS.WIDGETS
     ];
 
     const hasSyncableChange = Object.keys(changes).some(key =>
@@ -157,7 +144,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     }
 });
 
-// ========== 监听书签变化 ==========
 function handleBookmarkChange() {
     if (syncInProgress) return;
 
@@ -175,10 +161,6 @@ chrome.bookmarks.onRemoved.addListener(handleBookmarkChange);
 chrome.bookmarks.onChanged.addListener(handleBookmarkChange);
 chrome.bookmarks.onMoved.addListener(handleBookmarkChange);
 
-// ========== 监听来自 storage.js 的同步状态通知 ==========
-// 下载/恢复数据时，storage.js 会发送 syncStart/syncEnd 消息
-// 防止写入本地存储时触发误上传
-// 同时处理 FETCH_WEBSITE_INFO 请求（newtab/popup 的获取信息功能）
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'syncStart') {
         syncRefCount++;

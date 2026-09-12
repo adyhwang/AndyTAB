@@ -54,14 +54,27 @@
 
         <!-- 功能按钮组 -->
         <div class="feature-buttons">
-            <div id="todo-scroll-bar" class="todo-scroll-bar" style="display: none;">
-                <div class="todo-scroll-track">
-                    <div class="todo-scroll-content" id="todo-scroll-content"></div>
-                </div>
-            </div>
-            <button id="todo-btn" class="feature-btn" title="待办事项" style="display: none;">☑️</button>
             <button id="open-settings" class="feature-btn" title="设置">⚙️</button>
         </div>
+
+        <!-- 待办事项模块 -->
+        <div id="todo-panel" class="todo-panel" style="display: none;">
+            <div class="todo-panel-header" id="todo-panel-header">
+                <span class="todo-panel-title">📋<span class="todo-panel-title-text"> 待办清单</span></span>
+                <button class="todo-collapse-btn" id="todo-collapse-btn" title="收起/展开">›</button>
+            </div>
+            <div class="todo-panel-body">
+                <div class="todo-items" id="todo-items"></div>
+                <div class="todo-panel-footer">
+                    <input type="text" id="todo-input" placeholder="添加新待办...">
+                    <button id="todo-submit-btn" class="todo-submit-btn" style="display: none;">提交</button>
+                </div>
+            </div>
+            <div class="todo-resize-handle" id="todo-resize-handle" title="拖拽调整宽度"></div>
+        </div>
+
+        <!-- 自定义小组件浮层容器 -->
+        <div id="widgets-layer"></div>
     </div>
 
     <!-- 快捷方式添加弹窗 -->
@@ -174,6 +187,80 @@
         </div>
     </div>
 
+    <!-- 自定义小组件 新建/编辑弹窗（body 层级，可从主页面卡片直接打开） -->
+    <div class="modal" id="widget-form-modal">
+        <div class="modal-content modal-wide">
+            <span class="close">&times;</span>
+            <h3 id="widget-modal-title">新建小组件</h3>
+            <div class="modal-body">
+                <form id="widget-form">
+                    <input type="hidden" id="widget-uuid" value="">
+
+                    <div class="form-group">
+                        <label>小组件类型</label>
+                        <div class="widget-type-select">
+                            <button type="button" class="widget-type-option active" data-type="iframe">
+                                <span class="widget-type-icon">🌐</span>
+                                <span class="widget-type-name">网页嵌入</span>
+                            </button>
+                            <button type="button" class="widget-type-option" data-type="customCode">
+                                <span class="widget-type-icon">&lt;/&gt;</span>
+                                <span class="widget-type-name">自定义代码</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="widget-name">名称 *</label>
+                        <input type="text" id="widget-name" placeholder="输入小组件名称">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="widget-icon">图标 (emoji 或图片URL)</label>
+                        <input type="text" id="widget-icon" placeholder="📰 或 https://.../icon.png">
+                    </div>
+
+                    <!-- iframe 类型字段 -->
+                    <div class="form-group widget-field-iframe">
+                        <label for="widget-url">网页地址 (URL) *</label>
+                        <input type="text" id="widget-url" placeholder="https://">
+                    </div>
+
+                    <!-- customCode 类型字段 -->
+                    <div class="widget-field-code" style="display: none;">
+                        <div class="form-group">
+                            <label for="widget-html">HTML 代码 *</label>
+                            <textarea id="widget-html" class="widget-code-textarea" rows="5" placeholder="&lt;div&gt;...&lt;/div&gt;"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="widget-css">CSS 代码</label>
+                            <textarea id="widget-css" class="widget-code-textarea" rows="4" placeholder="/* 样式 */"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="widget-js">JS 代码</label>
+                            <textarea id="widget-js" class="widget-code-textarea" rows="4" placeholder="// 脚本"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>默认大小</label>
+                        <div class="widget-size-row">
+                            <input type="number" id="widget-width" placeholder="宽度" min="120" max="2000">
+                            <span class="widget-size-x">×</span>
+                            <input type="number" id="widget-height" placeholder="高度" min="80" max="2000">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="widget-example-btn" class="btn btn-secondary">载入示例</button>
+                        <button type="button" id="widget-cancel-btn" class="btn btn-secondary">取消</button>
+                        <button type="submit" id="widget-submit-btn" class="btn btn-primary">创建</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- 右侧设置面板 -->
     <div class="settings-panel" id="settings-panel">
         <div class="settings-panel-header">
@@ -208,6 +295,19 @@
                             </div>
                     </section>
 
+                    <!-- 自定义小组件设置模块 -->
+                    <section class="settings-section">
+                        <h3>🧩 自定义小组件</h3>
+                        <div class="section-content">
+                            <div class="setting-item">
+                                <button id="add-widget-btn" class="btn btn-primary btn-sm">新增小组件</button>
+                            </div>
+                            <div id="widget-settings-list" class="widget-settings-list">
+                                <!-- 小组件列表项将通过JavaScript动态生成 -->
+                            </div>
+                        </div>
+                    </section>
+                    
                     <!-- 搜索引擎设置模块 -->
                     <section class="settings-section">
                         <h3>🔍 搜索引擎设置</h3>
@@ -302,21 +402,11 @@
                                 <label class="toggle-switch">
                                     <span class="toggle-slider"></span>
                                 </label>
-                                <span>开启后，显示待办事项按钮</span>
-                            </div>
-                        </div>
-
-                        <div class="setting-item">
-                            <label class="setting-label">滚动显示待办事项:</label>
-                            <div class="setting-checkbox">
-                                <input type="checkbox" id="enable-todo-scroll">
-                                <label class="toggle-switch">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span>开启后，在待办按钮左侧滚动显示未完成待办</span>
+                                <span>开启后，显示待办事项模块</span>
                             </div>
                         </div>
                     </section>
+
 
                 </div>
 
@@ -720,22 +810,7 @@
                 </div>
             </div>
 
-            <!-- 待办事项弹窗 -->
-            <div class="modal" id="todo-modal">
-                <div class="modal-content modal-wide todo-modal-content">
-                    <span class="close">&times;</span>
-                    <h3>待办事项</h3>
-                    <div class="">
-                        <!-- 待办事项列表 -->
-                        <div class="todo-list" id="todo-list">
-                            <!-- 待办事项将通过JavaScript动态生成 -->
-                        </div>
-                        <div class="form-actions" style="margin-top: 1rem;">
-                            <button id="add-todo-btn" class="btn btn-primary">添加待办事项</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <!-- 自定义小组件弹窗已移至 body 层级（settings-panel 之前），以便从主页面卡片直接打开 -->
 
             <script type="module" src="index.js"></script>
 </body>
