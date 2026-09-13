@@ -1,5 +1,5 @@
 # AndyTAB
-自用的极简新标签页扩展，支持WebDAV数据同步，主要是支持通过webDAV与Via浏览器的书签和首页收藏保持同步，没有其他增强功能。
+极简新标签页扩展，支持WebDAV数据同步，主要是支持通过webDAV与Via浏览器的书签和首页收藏保持同步，支持自定义小组件。
 
 <img width="927" height="954" alt="a3" src="https://github.com/user-attachments/assets/c085a421-c859-42d0-8bfd-323ae2ac29be" />
 <img width="1023" height="1248" alt="a1" src="https://github.com/user-attachments/assets/da99440d-5234-4eee-8e70-8b028ad2c2b1" />
