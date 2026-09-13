@@ -23,16 +23,18 @@
 8. 安装完成，打开新标签页即可使用 AndyTAB
 
 
-方法二：CRX 拖拽安装（仅旧版浏览器 / 特殊启动项可用）
+方法二：CRX 拖拽安装（仅旧版浏览器 /个别第三方Chromium内核浏览器 / 特殊启动项可用）
 新版 Chrome / Edge 默认彻底禁用该方式，大概率无效，仅作备用方案
-新版浏览器 拖拽安装开启方式
+
+- 新版浏览器 拖拽安装开启方式
 1. 关闭所有浏览器窗口
 2. 右键浏览器快捷方式 → 属性
 3. 在「目标」输入框末尾添加启动参数（前面带一个空格）：
  --enable-easy-off-store-extension-install
 4. 点击确定，通过该快捷方式重新启动浏览器
 5. 打开扩展页面，将 .crx 文件直接拖入页面，按提示完成安装
-旧版 Chrome 专属方式
+
+- 旧版 Chrome 专属方式
 1. 打开 chrome://extensions/，开启开发者模式
 2. 地址栏输入：chrome://flags/#extensions-on-chrome-urls
 3. 将状态从 Disabled 修改为 Enabled，重启浏览器
