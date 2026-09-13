@@ -1,11 +1,12 @@
 # AndyTAB
-极简新标签页扩展，支持WebDAV数据同步，主要是支持通过webDAV与Via浏览器的书签和首页收藏保持同步，支持自定义小组件。
+极简新标签页扩展，支持WebDAV数据同步，主要功能是支持通过webDAV与Via浏览器的书签和首页收藏保持同步，支持自定义小组件完成个性化功能。
 
-<img width="927" height="954" alt="a3" src="https://github.com/user-attachments/assets/c085a421-c859-42d0-8bfd-323ae2ac29be" />
+<img width="1024" height="768" alt="a0" src="https://github.com/user-attachments/assets/7619a1a8-e608-440b-b9e6-3351f0f51d0d" />
 <img width="1023" height="1248" alt="a1" src="https://github.com/user-attachments/assets/da99440d-5234-4eee-8e70-8b028ad2c2b1" />
 <img width="499" height="1160" alt="a2" src="https://github.com/user-attachments/assets/9f1cafca-9460-45a9-978b-efccd6317d91" />
 <img width="350"  alt="2" src="https://github.com/user-attachments/assets/4710b78f-63d8-4eff-9683-14056ce92392" />
 <img width="350"  alt="3" src="https://github.com/user-attachments/assets/e2f1d920-77af-49c3-b9ce-c255b0f1137f" />
+<img width="927" height="954" alt="a3" src="https://github.com/user-attachments/assets/c085a421-c859-42d0-8bfd-323ae2ac29be" />
 
 ---
 由于新版 Chrome / Edge 已全面禁止商店外扩展直接安装，推荐优先使用 开发者模式加载解压文件夹（最稳定、永久可用、无兼容性问题）。
