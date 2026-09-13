@@ -247,6 +247,38 @@ body::before {
     text-overflow: ellipsis;
 }
 
+.sync-spinner {
+    position: fixed;
+    left: 24px;
+    bottom: 24px;
+    width: 22px;
+    height: 22px;
+    border: 3px solid rgba(102, 126, 234, 0.2);
+    border-top-color: #667eea;
+    border-radius: 50%;
+    z-index: 10000;
+    animation: sync-spinner-spin 0.8s linear infinite;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.sync-spinner.error {
+    border-color: rgba(255, 82, 82, 0.2);
+    border-top-color: #ff5252;
+    animation-duration: 1.2s;
+}
+
+.sync-spinner.hide {
+    opacity: 0;
+}
+
+@keyframes sync-spinner-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .engine-icon {
     width: 28px;
     height: 28px;

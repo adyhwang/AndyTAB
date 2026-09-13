@@ -64,6 +64,15 @@ let todos = [];
 let isTodoEnabled = false;
 let widgets = [];
 
+const SYNC_UI_KEYS = [
+    STORAGE_KEYS.SHORTCUTS,
+    STORAGE_KEYS.SETTINGS,
+    STORAGE_KEYS.SEARCH_ENGINES,
+    STORAGE_KEYS.TODOS,
+    STORAGE_KEYS.WIDGETS
+];
+let syncApplyInProgress = false;
+
 const TODO_LAYOUT_KEY = 'andy_tab_todo_layout';
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -101,6 +110,7 @@ async function init() {
     chrome.storage.onChanged.addListener((changes, areaName) => {
 
         if (areaName === 'local') {
+            if (syncApplyInProgress) return;
             if (changes[STORAGE_KEYS.SETTINGS]) {
                 loadAndApplySettings();
             }
@@ -209,36 +219,13 @@ async function initSyncCheck() {
 
         const cloudNewerCount = Object.values(cloudNewer).filter(Boolean).length;
         if (cloudNewerCount > 0) {
-
-            const syncTip = document.createElement('div');
-            syncTip.style.cssText = `
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: white;
-                padding: 24px 32px;
-                border-radius: 8px;
-                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-                z-index: 10000;
-                font-size: 16px;
-                color: #333;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            `;
-            syncTip.innerHTML = '<span style="font-size:20px">🔄</span> 正在从云端同步数据...';
-            document.body.appendChild(syncTip);
+            const spinner = showSyncSpinner();
 
             try {
-                await batchDownload(cloudNewer, 'overwrite');
-                location.reload();
+                await downloadAndApplyLocally(cloudNewer, 'overwrite');
+                hideSyncSpinner(spinner);
             } catch (error) {
-                syncTip.innerHTML = '<span style="font-size:20px">❌</span> 同步失败: ' + error.message;
-                syncTip.style.background = '#fff5f5';
-                setTimeout(() => {
-                    syncTip.remove();
-                }, 3000);
+                failSyncSpinner(spinner);
             }
             return;
         }
@@ -527,24 +514,14 @@ function showSyncConflictDialog(needSync, hasLocalData) {
                     break;
 
                 case 'cloud':
-                    await batchDownload(needSync, 'overwrite');
-                    location.reload();
+                    await downloadAndApplyLocally(needSync, 'overwrite');
+                    dialog.remove();
                     return;
 
                 case 'merge':
-
-                    if (needSync.sync) {
-                        await storageManager.downloadSyncData('merge');
-                    } else {
-                        if (needSync.favorites) {
-                            await storageManager.downloadFavorites('merge');
-                        }
-                        if (needSync.bookmarks) {
-                            await storageManager.downloadBookmarks('merge');
-                        }
-                    }
+                    await downloadAndApplyLocally(needSync, 'merge');
                     await storageManager.uploadSyncData();
-                    location.reload();
+                    dialog.remove();
                     return;
             }
 
@@ -577,6 +554,69 @@ async function batchDownload(needSync, mode = 'overwrite') {
     }
     if (needSync.bookmarks) {
         await storageManager.downloadBookmarks(mode);
+    }
+}
+
+function showSyncSpinner() {
+    const spinner = document.createElement('div');
+    spinner.className = 'sync-spinner';
+    document.body.appendChild(spinner);
+    return spinner;
+}
+
+function hideSyncSpinner(spinner) {
+    if (!spinner || !spinner.isConnected) return;
+    spinner.classList.add('hide');
+    setTimeout(() => spinner.remove(), 300);
+}
+
+function failSyncSpinner(spinner) {
+    if (!spinner || !spinner.isConnected) return;
+    spinner.classList.add('error');
+    setTimeout(() => hideSyncSpinner(spinner), 1200);
+}
+
+function syncValueEquals(a, b) {
+    return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+}
+
+async function applySyncChangedAreas(before, after) {
+    if (!syncValueEquals(before[STORAGE_KEYS.SHORTCUTS], after[STORAGE_KEYS.SHORTCUTS])) {
+        allShortcuts = after[STORAGE_KEYS.SHORTCUTS] || [];
+        await renderShortcuts(allShortcuts);
+    }
+
+    if (!syncValueEquals(before[STORAGE_KEYS.SETTINGS], after[STORAGE_KEYS.SETTINGS])) {
+        await loadAndApplySettings();
+    }
+
+    if (!syncValueEquals(before[STORAGE_KEYS.SEARCH_ENGINES], after[STORAGE_KEYS.SEARCH_ENGINES])) {
+        await renderEngineDropdown();
+    }
+
+    if (!syncValueEquals(before[STORAGE_KEYS.TODOS], after[STORAGE_KEYS.TODOS])) {
+        todos = after[STORAGE_KEYS.TODOS] || [];
+        renderTodoList();
+    }
+
+    if (!syncValueEquals(before[STORAGE_KEYS.WIDGETS], after[STORAGE_KEYS.WIDGETS])) {
+        widgets = after[STORAGE_KEYS.WIDGETS] || [];
+        applyWidgetLayouts();
+        renderWidgets();
+        renderWidgetSettingsList();
+    }
+}
+
+async function downloadAndApplyLocally(needSync, mode) {
+    syncApplyInProgress = true;
+    try {
+        const before = await chrome.storage.local.get(SYNC_UI_KEYS);
+        await batchDownload(needSync, mode);
+        const after = await chrome.storage.local.get(SYNC_UI_KEYS);
+        await applySyncChangedAreas(before, after);
+        await updateSyncStatusUI();
+    } finally {
+        syncApplyInProgress = false;
     }
 }
 
