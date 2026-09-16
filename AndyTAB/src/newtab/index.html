@@ -209,7 +209,7 @@
                 <form id="widget-form">
                     <input type="hidden" id="widget-uuid" value="">
 
-                    <div class="form-group">
+                    <div class="form-group widget-type-group">
                         <label>小组件类型</label>
                         <div class="widget-type-select">
                             <button type="button" class="widget-type-option active" data-type="iframe">
@@ -223,14 +223,23 @@
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="widget-name">名称 *</label>
-                        <input type="text" id="widget-name" placeholder="输入小组件名称">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="widget-icon">图标 (emoji 或图片URL)</label>
-                        <input type="text" id="widget-icon" placeholder="📰 或 https://.../icon.png">
+                    <div class="widget-row-main">
+                        <div class="form-group widget-fg-name">
+                            <label for="widget-name">名称 *</label>
+                            <input type="text" id="widget-name" placeholder="输入小组件名称">
+                        </div>
+                        <div class="form-group widget-fg-icon">
+                            <label for="widget-icon" title="emoji 或图片URL">图标</label>
+                            <input type="text" id="widget-icon" placeholder="📰 或 https://.../icon.png">
+                        </div>
+                        <div class="form-group widget-fg-size">
+                            <label>默认大小</label>
+                            <div class="widget-size-row">
+                                <input type="number" id="widget-width" placeholder="宽度" min="120" max="2000">
+                                <span class="widget-size-x">×</span>
+                                <input type="number" id="widget-height" placeholder="高度" min="80" max="2000">
+                            </div>
+                        </div>
                     </div>
 
                     <!-- iframe 类型字段 -->
@@ -241,36 +250,32 @@
 
                     <!-- customCode 类型字段 -->
                     <div class="widget-field-code" style="display: none;">
-                        <div class="form-group">
-                            <label for="widget-html">HTML 代码 *</label>
+                        <div class="widget-code-tabs">
+                            <button type="button" class="widget-code-tab active" data-tab="html">HTML 代码 *</button>
+                            <button type="button" class="widget-code-tab" data-tab="css">CSS 代码</button>
+                            <button type="button" class="widget-code-tab" data-tab="js">JS 代码</button>
+                        </div>
+                        <div class="form-group widget-code-panel active" data-panel="html">
                             <textarea id="widget-html" class="widget-code-textarea" rows="5"
                                 placeholder="&lt;div&gt;...&lt;/div&gt;"></textarea>
                         </div>
-                        <div class="form-group">
-                            <label for="widget-css">CSS 代码</label>
+                        <div class="form-group widget-code-panel" data-panel="css">
                             <textarea id="widget-css" class="widget-code-textarea" rows="4"
                                 placeholder="/* 样式 */"></textarea>
                         </div>
-                        <div class="form-group">
-                            <label for="widget-js">JS 代码</label>
+                        <div class="form-group widget-code-panel" data-panel="js">
                             <textarea id="widget-js" class="widget-code-textarea" rows="4"
                                 placeholder="// 脚本"></textarea>
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label>默认大小</label>
-                        <div class="widget-size-row">
-                            <input type="number" id="widget-width" placeholder="宽度" min="120" max="2000">
-                            <span class="widget-size-x">×</span>
-                            <input type="number" id="widget-height" placeholder="高度" min="80" max="2000">
-                        </div>
-                    </div>
-
                     <div class="form-actions">
+                        <button type="button" id="widget-import-btn" class="btn btn-secondary">导入</button>
+                        <button type="button" id="widget-export-btn" class="btn btn-secondary">导出</button>
                         <button type="button" id="widget-example-btn" class="btn btn-secondary">载入示例</button>
                         <button type="button" id="widget-cancel-btn" class="btn btn-secondary">取消</button>
                         <button type="submit" id="widget-submit-btn" class="btn btn-primary">创建</button>
+                        <input type="file" id="widget-import-file" accept=".json" style="display: none;">
                     </div>
                 </form>
             </div>

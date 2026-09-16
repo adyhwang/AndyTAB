@@ -124,6 +124,14 @@ function uploadSyncDataWithDebounce() {
     }, 1500);
 }
 
+function isSameStorageValue(a, b) {
+    try {
+        return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+    } catch (e) {
+        return false;
+    }
+}
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
 
@@ -135,9 +143,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         STORAGE_KEYS.WIDGETS
     ];
 
-    const hasSyncableChange = Object.keys(changes).some(key =>
-        syncableKeys.includes(key) && key !== STORAGE_KEYS.SYNC_LAST_TIMESTAMP
-    );
+    const hasSyncableChange = Object.keys(changes).some(key => {
+        if (!syncableKeys.includes(key) || key === STORAGE_KEYS.SYNC_LAST_TIMESTAMP) return false;
+        return !isSameStorageValue(changes[key].oldValue, changes[key].newValue);
+    });
 
     if (hasSyncableChange && !syncInProgress) {
         uploadSyncDataWithDebounce();

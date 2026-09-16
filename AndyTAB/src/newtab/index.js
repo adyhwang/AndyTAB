@@ -24,6 +24,11 @@ function getWidgetStoreData(uuid) {
 function saveWidgetStoreData(uuid, value) {
     const w = widgets.find((item) => item.uuid === uuid);
     if (!w) return;
+
+    if (JSON.stringify(w.store === undefined ? null : w.store) === JSON.stringify(value === undefined ? null : value)) {
+        return;
+    }
+
     w.store = value;
 
     saveWidgetsDebounced();
@@ -2502,14 +2507,11 @@ window.addEventListener('resize', () => {
 async function handleWheelNavigation(e) {
 
     const settingsPanel = document.getElementById('settings-panel');
-    const addShortcutModal = document.getElementById('add-shortcut-modal');
-    const manageEnginesModal = document.getElementById('manage-engines-modal');
 
     const isSettingsOpen = settingsPanel?.classList.contains('open');
-    const isAddShortcutModalOpen = addShortcutModal?.classList.contains('show');
-    const isManageEnginesModalOpen = manageEnginesModal?.classList.contains('show');
+    const isAnyModalOpen = !!document.querySelector('.modal.show');
 
-    if (isSettingsOpen || isAddShortcutModalOpen || isManageEnginesModalOpen) {
+    if (isSettingsOpen || isAnyModalOpen) {
         return;
     }
 
@@ -5131,16 +5133,22 @@ async function initWidgets() {
         const closeBtn = modal.querySelector('.close');
         closeBtn?.addEventListener('click', closeWidgetModal);
         document.getElementById('widget-cancel-btn')?.addEventListener('click', closeWidgetModal);
-        modal.addEventListener('mousedown', (e) => {
-            if (e.target === modal) closeWidgetModal();
-        });
     }
 
     document.querySelectorAll('#widget-form .widget-type-option').forEach((opt) => {
         opt.addEventListener('click', () => setWidgetFormType(opt.dataset.type));
     });
 
+    document.querySelectorAll('#widget-form .widget-code-tab').forEach((tab) => {
+        tab.addEventListener('click', () => showWidgetCodeTab(tab.dataset.tab));
+    });
+
     document.getElementById('widget-example-btn')?.addEventListener('click', loadWidgetExample);
+    document.getElementById('widget-import-btn')?.addEventListener('click', () => {
+        document.getElementById('widget-import-file')?.click();
+    });
+    document.getElementById('widget-import-file')?.addEventListener('change', handleWidgetImportFile);
+    document.getElementById('widget-export-btn')?.addEventListener('click', exportWidgetForm);
 
     const form = document.getElementById('widget-form');
     form?.addEventListener('submit', (e) => {
@@ -5619,7 +5627,16 @@ function setWidgetFormType(type) {
     const codeFields = document.querySelector('.widget-field-code');
     if (iframeFields) iframeFields.style.display = type === 'iframe' ? '' : 'none';
     if (codeFields) codeFields.style.display = type === 'customCode' ? '' : 'none';
+    if (type === 'customCode') showWidgetCodeTab('html');
+}
 
+function showWidgetCodeTab(tab) {
+    document.querySelectorAll('#widget-form .widget-code-tab').forEach((t) => {
+        t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    document.querySelectorAll('#widget-form .widget-code-panel').forEach((p) => {
+        p.classList.toggle('active', p.dataset.panel === tab);
+    });
 }
 
 function loadWidgetExample() {
@@ -5631,6 +5648,7 @@ function loadWidgetExample() {
     } else {
         document.getElementById('widget-name').value = '倒计时';
         document.getElementById('widget-icon').value = '⏳';
+        showWidgetCodeTab('html');
         document.getElementById('widget-html').value = `
 <div class="cd-wrap">
   <div class="cd-top">
@@ -5732,6 +5750,89 @@ setInterval(render, 1000);
     }
 }
 
+function getWidgetFormValues() {
+    const type = document.querySelector('#widget-form .widget-type-option.active')?.dataset.type || 'iframe';
+    return {
+        type,
+        name: document.getElementById('widget-name').value.trim(),
+        icon: document.getElementById('widget-icon').value.trim(),
+        url: document.getElementById('widget-url').value.trim(),
+        html: document.getElementById('widget-html').value,
+        css: document.getElementById('widget-css').value,
+        js: document.getElementById('widget-js').value,
+        w: parseInt(document.getElementById('widget-width').value, 10),
+        h: parseInt(document.getElementById('widget-height').value, 10)
+    };
+}
+
+function exportWidgetForm() {
+    const data = getWidgetFormValues();
+    if (!data.name) {
+        showNotification('错误', '请先填写小组件名称', 'error');
+        return;
+    }
+
+    const payload = {
+        andytabWidget: true,
+        version: 1,
+        widget: {
+            type: data.type,
+            name: data.name,
+            icon: data.icon,
+            ...(data.type === 'iframe'
+                ? { url: data.url }
+                : { html: data.html, css: data.css, js: data.js }),
+            w: data.w,
+            h: data.h
+        }
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${data.name.replace(/[\\/:*?"<>|]/g, '_')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showNotification('成功', '小组件已导出', 'success');
+}
+
+function handleWidgetImportFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const payload = JSON.parse(reader.result);
+            const data = payload?.andytabWidget ? payload.widget : payload;
+            if (!data || (data.type !== 'iframe' && data.type !== 'customCode') || !data.name) {
+                throw new Error('格式无效');
+            }
+
+            document.getElementById('widget-name').value = data.name;
+            document.getElementById('widget-icon').value = data.icon || '';
+            setWidgetFormType(data.type);
+            if (data.type === 'iframe') {
+                document.getElementById('widget-url').value = data.url || '';
+            } else {
+                showWidgetCodeTab('html');
+                document.getElementById('widget-html').value = data.html || '';
+                document.getElementById('widget-css').value = data.css || '';
+                document.getElementById('widget-js').value = data.js || '';
+            }
+            if (Number.isFinite(data.w)) document.getElementById('widget-width').value = data.w;
+            if (Number.isFinite(data.h)) document.getElementById('widget-height').value = data.h;
+
+            showNotification('成功', '小组件已导入', 'success');
+        } catch (err) {
+            showNotification('错误', '导入失败：无效的小组件文件', 'error');
+        }
+    };
+    reader.readAsText(file);
+}
+
 function validateWidgetForm(data) {
     if (!data.name) {
         showNotification('错误', '请填写小组件名称', 'error');
@@ -5766,18 +5867,7 @@ function validateWidgetForm(data) {
 
 function handleWidgetFormSubmit() {
     const uuid = document.getElementById('widget-uuid').value;
-    const type = document.querySelector('#widget-form .widget-type-option.active')?.dataset.type || 'iframe';
-    const data = {
-        type,
-        name: document.getElementById('widget-name').value.trim(),
-        icon: document.getElementById('widget-icon').value.trim(),
-        url: document.getElementById('widget-url').value.trim(),
-        html: document.getElementById('widget-html').value,
-        css: document.getElementById('widget-css').value,
-        js: document.getElementById('widget-js').value,
-        w: parseInt(document.getElementById('widget-width').value, 10),
-        h: parseInt(document.getElementById('widget-height').value, 10)
-    };
+    const data = getWidgetFormValues();
 
     if (!validateWidgetForm(data)) return;
 
