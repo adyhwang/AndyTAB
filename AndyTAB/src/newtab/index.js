@@ -5720,8 +5720,11 @@ function render(){
   var tPart = (store.date.split('T')[1] || '00:00:00').slice(0, 8);
   $('.cd-date').textContent = dPart + ' ' + WEEK[target.getDay()] + ' ' + tPart;
   var status = '已结束';
-  if(days >= 2){ status = '进行中'; }
-  else if(days >= 1){ status = '快到了'; }
+  if(diff > 0){
+    if(days >= 2){ status = '进行中'; }
+    else if(days >= 1){ status = '快到了'; }
+    else { status = '即将开始'; }
+  }
   $('.cd-status').textContent = status;
 }
 $('.cd-cfg-btn').addEventListener('click', function(){
