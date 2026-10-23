@@ -2626,20 +2626,26 @@ body[data-theme="dark"]::after {
 }
 
 .widget-settings-list {
-    margin-top: 12px;
+    margin: var(--space-1) var(--space-2);
     display: flex;
     flex-direction: column;
-    gap: 8px;
 }
 
 .widget-list-item {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-2);
     background: #f8f9fb;
     border: 1px solid #eef0f3;
-    border-radius: 8px;
+    border-radius: 2px;
+    margin-bottom: var(--space-2);
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.widget-list-item:hover {
+    background: #f1f3f6;
+    border-color: var(--color-primary);
 }
 
 .widget-list-enabled {
@@ -2647,7 +2653,7 @@ body[data-theme="dark"]::after {
     height: 15px;
     flex-shrink: 0;
     cursor: pointer;
-    accent-color: #667eea;
+    accent-color: var(--color-primary);
 }
 
 .widget-list-icon {
@@ -3278,6 +3284,10 @@ body.is-shortcut-drag .shortcut-item:hover {
     background: #262a30;
     border-color: #3d4148;
     color: #e6e8eb;
+}
+.settings-panel[data-theme="dark"] .widget-list-item:hover {
+    background: #2d3138;
+    border-color: var(--color-primary);
 }
 
 .settings-panel[data-theme="dark"] .widget-list-name {

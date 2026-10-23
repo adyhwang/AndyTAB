@@ -156,9 +156,8 @@ async function init() {
         }
     });
 
-    await initTodos();
-
-    await initWidgets();
+    // 内置（待办）与自定义小组件互不依赖，并发加载以缩短首屏
+    await Promise.all([initTodos(), initWidgets()]);
 
     await initSyncCheck();
 }
@@ -660,9 +659,10 @@ function updateBackgroundSettingsVisibility(backgroundType) {
 
     const visible = {
         gradient: [['gradient', 'block']],
-        solid: [['solid', 'block']],
+        solid: [['solid', 'flex']],
         image: [['image', 'block'], ['overlay', 'flex']],
-        local: [['local', 'flex'], ['overlay', 'flex']]
+        local: [['local', 'flex'], ['overlay', 'flex']],
+        bing: []
     }[backgroundType] || [['gradient', 'block']];
 
     visible.forEach(([key, display]) => showAll(groups[key], display));
@@ -4606,6 +4606,7 @@ async function initPersonalizationSettings() {
     if (backgroundTypeSelect) {
         backgroundTypeSelect.addEventListener('change', function() {
             updateBackgroundSettingsVisibility(this.value);
+            saveSettings();
         });
 
         updateBackgroundSettingsVisibility(backgroundTypeSelect.value);
@@ -4729,7 +4730,7 @@ async function initPersonalizationSettings() {
 
     initSliders();
 
-    toggleBackgroundSettings(settings.backgroundType || 'gradient');
+    updateBackgroundSettingsVisibility(settings.backgroundType || 'gradient');
     updateBackgroundLocalPreview(settings.backgroundLocalImage || '');
 
     toggleTimeSettings(settings.showTime !== false);
@@ -4739,13 +4740,6 @@ async function initPersonalizationSettings() {
         const searchEngineElement = document.getElementById('search-engine');
         if (searchEngineElement) {
             searchEngineElement.addEventListener('change', saveSettings);
-        }
-        const backgroundTypeElement = document.getElementById('background-type');
-        if (backgroundTypeElement) {
-            backgroundTypeElement.addEventListener('change', function(e) {
-                toggleBackgroundSettings(e.target.value);
-                saveSettings();
-            });
         }
         const backgroundColorElement = document.getElementById('background-color');
         if (backgroundColorElement) {
@@ -5030,40 +5024,6 @@ function applySettingsChange(prev, settings) {
     }
 }
 
-function toggleBackgroundSettings(backgroundType) {
-    const colorSetting = document.querySelector('.background-color-setting');
-    const imageSetting = document.querySelector('.background-image-setting');
-    const localSetting = document.querySelector('.background-local-setting');
-    const overlaySetting = document.querySelector('.background-overlay-setting');
-
-    if (localSetting) {
-        localSetting.style.display = backgroundType === 'local' ? 'flex' : 'none';
-    }
-    if (overlaySetting) {
-        overlaySetting.style.display = (backgroundType === 'image' || backgroundType === 'local') ? 'flex' : 'none';
-    }
-
-    switch (backgroundType) {
-        case 'solid':
-            colorSetting.style.display = 'flex';
-            imageSetting.style.display = 'none';
-            break;
-        case 'image':
-            colorSetting.style.display = 'none';
-            imageSetting.style.display = 'block';
-            break;
-        case 'bing':
-
-            colorSetting.style.display = 'none';
-            imageSetting.style.display = 'none';
-            break;
-        default:
-            colorSetting.style.display = 'none';
-            imageSetting.style.display = 'none';
-            break;
-    }
-}
-
 function updateOpacityDisplay() {
     const opacitySlider = document.getElementById('overlay-opacity');
     const opacityValue = document.getElementById('opacity-value');
@@ -5248,7 +5208,6 @@ async function applyLocalBackground(dataUrl, message) {
 
     const typeSelect = document.getElementById('background-type');
     if (typeSelect) typeSelect.value = 'local';
-    toggleBackgroundSettings('local');
     updateBackgroundSettingsVisibility('local');
     updateBackgroundLocalPreview(dataUrl);
     await applyBackgroundSettings(settings);
@@ -5285,7 +5244,6 @@ async function removeBackgroundLocalImage() {
 
     const typeSelect = document.getElementById('background-type');
     if (typeSelect) typeSelect.value = 'gradient';
-    toggleBackgroundSettings('gradient');
     updateBackgroundSettingsVisibility('gradient');
     updateBackgroundLocalPreview('');
     await applyBackgroundSettings(settings);
@@ -6295,6 +6253,8 @@ function startWidgetResize(e, card, w) {
 function renderWidgetSettingsList() {
     const list = document.getElementById('widget-settings-list');
     if (!list) return;
+
+    list.innerHTML = '';
 
     widgets.forEach((w) => {
         const item = document.createElement('div');
