@@ -1,5 +1,6 @@
 import storageManager from '../utils/storage.js';
 import imageCacheManager from '../utils/imageCache.js';
+import { computeNextOccurrence, toTimeValue, parseTimeValue } from '../utils/reminder.js';
 
 const STORAGE_KEYS = {
     SHORTCUTS: 'andy_tab_shortcuts',
@@ -1283,8 +1284,12 @@ function renderTodoList() {
         if (todo.remindAt) {
             rightControl = document.createElement('span');
             rightControl.className = 'todo-entry-remind' + (!todo.completed && todo.remindAt < Date.now() ? ' overdue' : '');
-            rightControl.textContent = formatRemindTime(todo.remindAt);
-            rightControl.title = '编辑提醒';
+            const pending = !todo.completed && todo.remindAt > Date.now();
+            rightControl.textContent = pending
+                ? formatRemaining(todo.remindAt)
+                : formatRemindTime(todo.remindAt);
+            if (pending) rightControl.dataset.remindAt = String(todo.remindAt);
+            rightControl.title = `${formatRemindTime(todo.remindAt)} · 编辑提醒`;
         } else {
             rightControl = document.createElement('button');
             rightControl.className = 'todo-entry-edit-btn';
@@ -1305,6 +1310,7 @@ function renderTodoList() {
     todoItems.classList.toggle('scrollable', todos.length > 5);
 
     requestAnimationFrame(measureTodoTextScroll);
+    startTodoReminderTicker();
 }
 
 function measureTodoTextScroll() {
@@ -1365,9 +1371,15 @@ async function editTodo(index) {
 }
 
 async function deleteTodo(index) {
+    const todo = todos[index];
+    const rawText = todo && todo.text ? todo.text.trim() : '';
+    const name = rawText.length > 20 ? `${rawText.slice(0, 20)}…` : rawText || '这条待办';
+    if (!confirm(`确定要删除待办 "${name}" 吗？`)) return false;
+
     todos.splice(index, 1);
     await storageManager.saveData(STORAGE_KEYS.TODOS, todos);
     renderTodoList();
+    return true;
 }
 
 function formatRemindTime(ts) {
@@ -1377,6 +1389,53 @@ function formatRemindTime(ts) {
     return sameDay
         ? `${pad(d.getHours())}:${pad(d.getMinutes())}`
         : `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// 剩余时间紧凑展示，供待办条目右侧胶囊使用
+function formatRemaining(ts, now = Date.now()) {
+    const diff = ts - now;
+    if (diff <= 0) return '即将';
+    const totalMinutes = Math.floor(diff / 60000);
+    if (totalMinutes < 1) return '1分钟内';
+    const days = Math.floor(totalMinutes / 1440);
+    const hours = Math.floor((totalMinutes % 1440) / 60);
+    const minutes = totalMinutes % 60;
+    if (days > 0) return hours > 0 ? `${days}天${hours}时` : `${days}天`;
+    if (hours > 0) return minutes > 0 ? `${hours}时${minutes}分` : `${hours}时`;
+    return `${minutes}分`;
+}
+
+let todoReminderTicker = null;
+
+// 仅刷新倒计时文本，避免整列表重绘
+function updateTodoReminderLabels() {
+    const nodes = document.querySelectorAll('.todo-entry-remind[data-remind-at]');
+    let pending = 0;
+    nodes.forEach((el) => {
+        const ts = parseInt(el.dataset.remindAt, 10);
+        if (!isNaN(ts) && ts > Date.now()) {
+            pending++;
+            el.textContent = formatRemaining(ts);
+        } else if (el.textContent !== '即将') {
+            el.textContent = '即将';
+            el.classList.add('overdue');
+        }
+    });
+    if (pending === 0 && todoReminderTicker) {
+        clearInterval(todoReminderTicker);
+        todoReminderTicker = null;
+    }
+}
+
+function startTodoReminderTicker() {
+    updateTodoReminderLabels();
+    if (todoReminderTicker) {
+        clearInterval(todoReminderTicker);
+        todoReminderTicker = null;
+    }
+    if (document.querySelector('.todo-entry-remind[data-remind-at]')) {
+        todoReminderTicker = setInterval(updateTodoReminderLabels, 30000);
+    }
 }
 
 let todoRemindPopover = null;
@@ -1402,7 +1461,10 @@ function toLocalDatetimeValue(timestamp) {
 function openTodoRemindPopover(index, anchor) {
     closeTodoRemindPopover();
 
-    const current = todos[index].remindAt;
+    const todo = todos[index];
+    const rule = todo.remindRule || { mode: 'once' };
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
 
     const pop = document.createElement('div');
     pop.className = 'todo-remind-popover';
@@ -1412,19 +1474,175 @@ function openTodoRemindPopover(index, anchor) {
     title.className = 'todo-remind-title';
     title.textContent = '编辑待办';
 
-    const label = document.createElement('label');
-    label.className = 'todo-remind-label';
-    label.textContent = '提醒时间';
+    const modeLabel = document.createElement('label');
+    modeLabel.className = 'todo-remind-label';
+    modeLabel.textContent = '提醒方式';
 
-    const input = document.createElement('input');
-    input.type = 'datetime-local';
-    input.step = '1';
-    input.className = 'todo-remind-datetime';
-    input.value = current ? toLocalDatetimeValue(current) : '';
+    const modeSelect = document.createElement('select');
+    modeSelect.className = 'todo-remind-select';
+    [['once', '单次提醒'], ['countdown', '倒计时'], ['cycle', '重复提醒']].forEach(([value, label]) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        modeSelect.appendChild(option);
+    });
+    modeSelect.value = rule.mode === 'countdown' || rule.mode === 'cycle' ? rule.mode : 'once';
 
-    const hint = document.createElement('div');
-    hint.className = 'todo-remind-hint';
-    hint.textContent = '留空则取消提醒';
+    const createHint = (text) => {
+        const hint = document.createElement('div');
+        hint.className = 'todo-remind-hint';
+        hint.textContent = text;
+        return hint;
+    };
+
+    // 一次性提醒
+    const onceSection = document.createElement('div');
+    onceSection.className = 'todo-remind-section';
+
+    const onceLabel = document.createElement('label');
+    onceLabel.className = 'todo-remind-label';
+    onceLabel.textContent = '提醒时间';
+
+    const onceInput = document.createElement('input');
+    onceInput.type = 'datetime-local';
+    onceInput.step = '1';
+    onceInput.className = 'todo-remind-datetime';
+    if (rule.mode === 'once' && todo.remindAt) {
+        onceInput.value = toLocalDatetimeValue(todo.remindAt);
+    }
+
+    onceSection.appendChild(onceLabel);
+    onceSection.appendChild(onceInput);
+    onceSection.appendChild(createHint('留空则取消提醒'));
+
+    // 倒计时
+    const countdownSection = document.createElement('div');
+    countdownSection.className = 'todo-remind-section';
+
+    const countdownLabel = document.createElement('label');
+    countdownLabel.className = 'todo-remind-label';
+    countdownLabel.textContent = '倒计时';
+
+    const durationRow = document.createElement('div');
+    durationRow.className = 'todo-remind-duration';
+    const durationInputs = {};
+    const savedDuration = rule.mode === 'countdown' ? (rule.duration || {}) : {};
+    [['d', '天', 999], ['h', '时', 23], ['m', '分', 59], ['s', '秒', 59]].forEach(([key, unit, max]) => {
+        const wrapper = document.createElement('label');
+        wrapper.className = 'todo-remind-duration-item';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '0';
+        input.max = String(max);
+        input.value = String(savedDuration[key] || 0);
+        const caption = document.createElement('span');
+        caption.textContent = unit;
+        wrapper.appendChild(input);
+        wrapper.appendChild(caption);
+        durationInputs[key] = input;
+        durationRow.appendChild(wrapper);
+    });
+
+    countdownSection.appendChild(countdownLabel);
+    countdownSection.appendChild(durationRow);
+
+    const repeatLabel = document.createElement('label');
+    repeatLabel.className = 'todo-remind-checkbox';
+    const repeatCheckbox = document.createElement('input');
+    repeatCheckbox.type = 'checkbox';
+    repeatCheckbox.checked = rule.mode === 'countdown' && !!rule.repeat;
+    const repeatText = document.createElement('span');
+    repeatText.textContent = '循环计时提醒';
+    repeatLabel.appendChild(repeatCheckbox);
+    repeatLabel.appendChild(repeatText);
+    countdownSection.appendChild(repeatLabel);
+
+    countdownSection.appendChild(createHint('从保存时开始计时，全为 0 则取消提醒'));
+
+    // 周期循环
+    const cycleSection = document.createElement('div');
+    cycleSection.className = 'todo-remind-section';
+
+    const cycleLabel = document.createElement('label');
+    cycleLabel.className = 'todo-remind-label';
+    cycleLabel.textContent = '周期';
+
+    const unitsRow = document.createElement('div');
+    unitsRow.className = 'todo-remind-units';
+    const unitButtons = {};
+    [['week', '周'], ['month', '月'], ['year', '年']].forEach(([unit, label]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'todo-remind-unit-btn';
+        btn.textContent = label;
+        btn.onclick = () => setCycleUnit(unit);
+        unitButtons[unit] = btn;
+        unitsRow.appendChild(btn);
+    });
+
+    const createTimeInput = (value) => {
+        const input = document.createElement('input');
+        input.type = 'time';
+        input.step = '1';
+        input.className = 'todo-remind-input';
+        input.value = value;
+        return input;
+    };
+
+    const currentWeekday = ((now.getDay() + 6) % 7) + 1;
+    const fallbackTime = `${pad(now.getHours())}:${pad(now.getMinutes())}:00`;
+
+    const weekPanel = document.createElement('div');
+    weekPanel.className = 'todo-remind-row';
+    const weekdaySelect = document.createElement('select');
+    weekdaySelect.className = 'todo-remind-select todo-remind-select-inline';
+    ['周一', '周二', '周三', '周四', '周五', '周六', '周日'].forEach((label, i) => {
+        const option = document.createElement('option');
+        option.value = String(i + 1);
+        option.textContent = label;
+        weekdaySelect.appendChild(option);
+    });
+    weekdaySelect.value = String(rule.unit === 'week' ? (rule.weekday || currentWeekday) : currentWeekday);
+    const weekTimeInput = createTimeInput(rule.unit === 'week' ? toTimeValue(rule.hour, rule.minute, rule.second) : fallbackTime);
+    weekPanel.appendChild(weekdaySelect);
+    weekPanel.appendChild(weekTimeInput);
+
+    const monthPanel = document.createElement('div');
+    monthPanel.className = 'todo-remind-row';
+    const daySelect = document.createElement('select');
+    daySelect.className = 'todo-remind-select todo-remind-select-inline';
+    for (let day = 1; day <= 31; day++) {
+        const option = document.createElement('option');
+        option.value = String(day);
+        option.textContent = `${day} 日`;
+        daySelect.appendChild(option);
+    }
+    daySelect.value = String(rule.unit === 'month' ? (rule.day || now.getDate()) : now.getDate());
+    const monthTimeInput = createTimeInput(rule.unit === 'month' ? toTimeValue(rule.hour, rule.minute, rule.second) : fallbackTime);
+    monthPanel.appendChild(daySelect);
+    monthPanel.appendChild(monthTimeInput);
+
+    const yearPanel = document.createElement('div');
+    yearPanel.className = 'todo-remind-section';
+    const yearInput = document.createElement('input');
+    yearInput.type = 'datetime-local';
+    yearInput.step = '1';
+    yearInput.className = 'todo-remind-datetime';
+    yearInput.value = toLocalDatetimeValue(rule.unit === 'year' && todo.remindAt ? todo.remindAt : Date.now() + 3600000);
+    yearPanel.appendChild(yearInput);
+    yearPanel.appendChild(createHint('每年在所选日期的同一时刻提醒'));
+
+    cycleSection.appendChild(cycleLabel);
+    cycleSection.appendChild(unitsRow);
+    cycleSection.appendChild(weekPanel);
+    cycleSection.appendChild(monthPanel);
+    cycleSection.appendChild(yearPanel);
+
+    const fields = document.createElement('div');
+    fields.className = 'todo-remind-fields';
+    fields.appendChild(onceSection);
+    fields.appendChild(countdownSection);
+    fields.appendChild(cycleSection);
 
     const actions = document.createElement('div');
     actions.className = 'todo-remind-actions';
@@ -1442,11 +1660,33 @@ function openTodoRemindPopover(index, anchor) {
     actions.appendChild(deleteBtn);
     actions.appendChild(confirmBtn);
     pop.appendChild(title);
-    pop.appendChild(label);
-    pop.appendChild(input);
-    pop.appendChild(hint);
+    pop.appendChild(modeLabel);
+    pop.appendChild(modeSelect);
+    pop.appendChild(fields);
     pop.appendChild(actions);
     document.body.appendChild(pop);
+
+    let cycleUnit = rule.unit === 'month' || rule.unit === 'year' ? rule.unit : 'week';
+    let cycleTimeInput = weekTimeInput;
+
+    function setCycleUnit(unit) {
+        cycleUnit = unit;
+        Object.keys(unitButtons).forEach((key) => unitButtons[key].classList.toggle('active', key === unit));
+        weekPanel.style.display = unit === 'week' ? 'flex' : 'none';
+        monthPanel.style.display = unit === 'month' ? 'flex' : 'none';
+        yearPanel.style.display = unit === 'year' ? 'flex' : 'none';
+        cycleTimeInput = unit === 'month' ? monthTimeInput : weekTimeInput;
+    }
+
+    function setMode(mode) {
+        onceSection.style.display = mode === 'once' ? 'flex' : 'none';
+        countdownSection.style.display = mode === 'countdown' ? 'flex' : 'none';
+        cycleSection.style.display = mode === 'cycle' ? 'flex' : 'none';
+    }
+
+    setCycleUnit(cycleUnit);
+    setMode(modeSelect.value);
+    modeSelect.onchange = () => setMode(modeSelect.value);
 
     // 浮窗优先显示在触发元素下方，空间不足时翻到上方
     const rect = anchor.getBoundingClientRect();
@@ -1462,21 +1702,78 @@ function openTodoRemindPopover(index, anchor) {
     pop.style.top = `${top}px`;
     pop.style.visibility = '';
 
-    input.focus();
+    if (modeSelect.value === 'once') onceInput.focus();
 
     let done = false;
     const finish = async () => {
         if (done) return;
         done = true;
-        const next = input.value ? new Date(input.value).getTime() : null;
-        const prev = todos[index].remindAt || null;
-        if (next !== prev && (next === null || !isNaN(next))) {
-            if (next === null) {
-                delete todos[index].remindAt;
-            } else {
-                todos[index].remindAt = next;
+
+        const mode = modeSelect.value;
+        let nextTs = null;
+        let nextRule = null;
+
+        if (mode === 'once') {
+            if (onceInput.value) {
+                const ts = new Date(onceInput.value).getTime();
+                if (!isNaN(ts)) {
+                    nextTs = ts;
+                    nextRule = { mode: 'once' };
+                }
             }
-            delete todos[index].remindNotifiedAt;
+        } else if (mode === 'countdown') {
+            const d = Math.min(999, Math.max(0, parseInt(durationInputs.d.value, 10) || 0));
+            const h = Math.min(23, Math.max(0, parseInt(durationInputs.h.value, 10) || 0));
+            const m = Math.min(59, Math.max(0, parseInt(durationInputs.m.value, 10) || 0));
+            const s = Math.min(59, Math.max(0, parseInt(durationInputs.s.value, 10) || 0));
+            const totalSeconds = d * 86400 + h * 3600 + m * 60 + s;
+            if (totalSeconds > 0) {
+                nextRule = { mode: 'countdown', duration: { d, h, m, s } };
+                if (repeatCheckbox.checked) nextRule.repeat = true;
+                const prevDuration = rule.mode === 'countdown' ? rule.duration : null;
+                const prevRepeat = rule.mode === 'countdown' && !!rule.repeat;
+                const unchanged = prevDuration && prevRepeat === repeatCheckbox.checked
+                    && prevDuration.d === d && prevDuration.h === h
+                    && prevDuration.m === m && prevDuration.s === s;
+                nextTs = unchanged && todo.remindAt ? todo.remindAt : Date.now() + totalSeconds * 1000;
+            }
+        } else if (cycleUnit === 'year') {
+            if (yearInput.value) {
+                const picked = new Date(yearInput.value);
+                if (!isNaN(picked.getTime())) {
+                    nextRule = {
+                        mode: 'cycle',
+                        unit: 'year',
+                        month: picked.getMonth() + 1,
+                        day: picked.getDate(),
+                        hour: picked.getHours(),
+                        minute: picked.getMinutes(),
+                        second: picked.getSeconds()
+                    };
+                    nextTs = computeNextOccurrence(nextRule);
+                }
+            }
+        } else {
+            const time = parseTimeValue(cycleTimeInput.value);
+            nextRule = cycleUnit === 'week'
+                ? { mode: 'cycle', unit: 'week', weekday: parseInt(weekdaySelect.value, 10), ...time }
+                : { mode: 'cycle', unit: 'month', day: parseInt(daySelect.value, 10), ...time };
+            nextTs = computeNextOccurrence(nextRule);
+        }
+
+        const prevTs = todo.remindAt || null;
+        const prevRule = todo.remindRule ? JSON.stringify(todo.remindRule) : '';
+        const ruleChanged = nextRule ? JSON.stringify(nextRule) !== prevRule : !!prevRule;
+
+        if (nextTs && (nextTs !== prevTs || ruleChanged)) {
+            todo.remindAt = nextTs;
+            todo.remindRule = nextRule;
+            delete todo.remindNotifiedAt;
+            await storageManager.saveData(STORAGE_KEYS.TODOS, todos);
+        } else if (!nextTs && (prevTs || prevRule)) {
+            delete todo.remindAt;
+            delete todo.remindRule;
+            delete todo.remindNotifiedAt;
             await storageManager.saveData(STORAGE_KEYS.TODOS, todos);
         }
         closeTodoRemindPopover();
@@ -1484,18 +1781,18 @@ function openTodoRemindPopover(index, anchor) {
     };
 
     confirmBtn.onclick = finish;
-    deleteBtn.onclick = () => {
-        closeTodoRemindPopover();
-        deleteTodo(index);
+    deleteBtn.onclick = async () => {
+        if (await deleteTodo(index)) closeTodoRemindPopover();
     };
-    input.onkeydown = (e) => {
-        if (e.key === 'Enter') {
+
+    pop.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeTodoRemindPopover();
+        } else if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
             e.preventDefault();
             finish();
-        } else if (e.key === 'Escape') {
-            closeTodoRemindPopover();
         }
-    };
+    });
 
     todoRemindPopover = pop;
     todoRemindOutsideHandler = (e) => {

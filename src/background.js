@@ -1,5 +1,6 @@
 import WebDAVClient from './utils/webdav.js';
 import { convertShortcutsToFavoritesTxt, convertBookmarksToHtml } from './utils/syncUtils.js';
+import { computeNextOccurrence, isRepeatingReminder } from './utils/reminder.js';
 
 const STORAGE_KEYS = {
     SETTINGS: 'andy_tab_settings',
@@ -262,9 +263,24 @@ async function fetchWebsiteInfo(url) {
 }
 
 const TODO_ALARM_PREFIX = 'todo_remind_';
+const TODO_NOTIFY_CLOSE_PREFIX = 'todo_notify_close_';
+const NOTIFICATION_AUTO_CLOSE_MS = 30000;
+
+// 同一次触发可能同时被启动同步与 alarm 回调处理，按 id+时间戳去重避免双通知
+const notifiedKeys = new Set();
+
+function claimTodoNotification(todo) {
+    const key = `${todo.id}:${todo.remindAt}`;
+    if (notifiedKeys.has(key)) return false;
+    notifiedKeys.add(key);
+    return true;
+}
 
 function createTodoNotification(todo) {
-    chrome.notifications.create(`todo_notify_${todo.id}_${Date.now()}`, {
+    // 每个待办使用固定 id：即使被重复触发也只会覆盖同一条通知，不会叠成两条
+    const notificationId = `todo_${todo.id}`;
+    console.info('[AndyTAB Background] 发送待办提醒', notificationId, todo.remindAt ? new Date(todo.remindAt).toLocaleString() : '');
+    chrome.notifications.create(notificationId, {
         type: 'basic',
         iconUrl: chrome.runtime.getURL('src/assets/icons/icon128.png'),
         title: '待办提醒',
@@ -276,6 +292,13 @@ function createTodoNotification(todo) {
             console.error('[AndyTAB Background] 待办通知发送失败：', chrome.runtime.lastError.message);
         }
     });
+
+    // 与通知创建回调解耦：回调异常或未触发都不影响自动收起
+    chrome.alarms.create(`${TODO_NOTIFY_CLOSE_PREFIX}${notificationId}`, {
+        when: Date.now() + NOTIFICATION_AUTO_CLOSE_MS
+    });
+    // 定时器兜底：alarm 调度被系统推迟时仍能按时收起
+    setTimeout(() => chrome.notifications.clear(notificationId), NOTIFICATION_AUTO_CLOSE_MS);
 }
 
 async function markReminderNotified(todoId, remindAt) {
@@ -291,7 +314,12 @@ async function syncTodoAlarms() {
     try {
         const todos = (await chrome.storage.local.get([STORAGE_KEYS.TODOS]))[STORAGE_KEYS.TODOS] || [];
         const pending = todos.filter(t => !t.completed && typeof t.remindAt === 'number' && t.remindAt > Date.now());
-        const keepNames = new Set(pending.map(t => `${TODO_ALARM_PREFIX}${t.id}`));
+        // 按待办 id 保留 alarm：到点的待办同样可能正被 alarm 回调推进，不能因“时间已过”而清除
+        const keepNames = new Set(
+            todos
+                .filter(t => !t.completed && typeof t.remindAt === 'number')
+                .map(t => `${TODO_ALARM_PREFIX}${t.id}`)
+        );
 
         const existing = await chrome.alarms.getAll();
         for (const alarm of existing) {
@@ -309,12 +337,33 @@ async function syncTodoAlarms() {
             .sort((a, b) => b.remindAt - a.remindAt)
             .slice(0, 5);
 
+        let changed = false;
+        const notified = [];
         for (const todo of due) {
-            createTodoNotification(todo);
-            todo.remindNotifiedAt = todo.remindAt;
+            if (!claimTodoNotification(todo)) continue;
+            notified.push(todo);
+            changed = true;
+            if (isRepeatingReminder(todo.remindRule)) {
+                const next = computeNextOccurrence(todo.remindRule);
+                if (next) {
+                    todo.remindAt = next;
+                    delete todo.remindNotifiedAt;
+                    chrome.alarms.create(`${TODO_ALARM_PREFIX}${todo.id}`, { when: next });
+                } else {
+                    todo.remindNotifiedAt = todo.remindAt;
+                }
+            } else {
+                todo.remindNotifiedAt = todo.remindAt;
+            }
         }
-        if (due.length) {
-            await chrome.storage.local.set({ [STORAGE_KEYS.TODOS]: todos });
+        // 先落库再弹通知，避免 worker 重启后同一提醒被重复处理
+        if (changed) {
+            try {
+                await chrome.storage.local.set({ [STORAGE_KEYS.TODOS]: todos });
+            } catch (error) {
+                console.error('[AndyTAB Background] 待办提醒状态保存失败：', error);
+            }
+            notified.forEach(todo => createTodoNotification(todo));
         }
     } catch (error) {
         console.error('[AndyTAB Background] 同步待办提醒失败：', error);
@@ -322,6 +371,13 @@ async function syncTodoAlarms() {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+    // 通知自动收起的独立 alarm
+    if (alarm.name.startsWith(TODO_NOTIFY_CLOSE_PREFIX)) {
+        const notificationId = alarm.name.slice(TODO_NOTIFY_CLOSE_PREFIX.length);
+        chrome.notifications.clear(notificationId);
+        return;
+    }
+
     if (!alarm.name.startsWith(TODO_ALARM_PREFIX)) return;
 
     const todoId = Number(alarm.name.slice(TODO_ALARM_PREFIX.length));
@@ -329,9 +385,30 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     const todos = result[STORAGE_KEYS.TODOS] || [];
     const todo = todos.find(t => t.id === todoId);
     if (!todo || todo.completed) return;
+    // 已由同步流程通知过，或 alarm 对应的触发时间已被推进
+    if (todo.remindNotifiedAt === todo.remindAt) return;
+    if (alarm.scheduledTime && Math.abs(alarm.scheduledTime - todo.remindAt) > 2000) return;
+    if (!claimTodoNotification(todo)) return;
 
-    createTodoNotification(todo);
+    // 周期提醒：先推进到下一次触发时间并落库，再弹通知
+    if (isRepeatingReminder(todo.remindRule)) {
+        const next = computeNextOccurrence(todo.remindRule);
+        if (next) {
+            todo.remindAt = next;
+            delete todo.remindNotifiedAt;
+            try {
+                await chrome.storage.local.set({ [STORAGE_KEYS.TODOS]: todos });
+            } catch (error) {
+                console.error('[AndyTAB Background] 待办提醒状态保存失败：', error);
+            }
+            chrome.alarms.create(`${TODO_ALARM_PREFIX}${todoId}`, { when: next });
+            createTodoNotification(todo);
+            return;
+        }
+    }
+
     await markReminderNotified(todoId, todo.remindAt);
+    createTodoNotification(todo);
 });
 
 chrome.notifications.onClicked.addListener(() => {

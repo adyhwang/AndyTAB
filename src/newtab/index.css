@@ -814,6 +814,7 @@ body[data-theme="dark"]::after {
 
 .todo-panel-title-text {
     display: inline-block;
+    margin-left: 6px;
     max-width: 150px;
     opacity: 1;
     transition: max-width 0.3s ease, opacity 0.25s ease;
@@ -3059,6 +3060,136 @@ body[data-theme="dark"]::after {
     color: var(--color-text-subtle);
 }
 
+.todo-remind-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.todo-remind-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.todo-remind-select {
+    width: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    background: #ffffff;
+}
+
+.todo-remind-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
+.todo-remind-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.todo-remind-select-inline {
+    width: 92px;
+    flex: 0 0 92px;
+}
+
+.todo-remind-input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    background: #ffffff;
+}
+
+.todo-remind-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
+.todo-remind-duration {
+    display: flex;
+    gap: 6px;
+}
+
+.todo-remind-duration-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+.todo-remind-duration-item input {
+    width: 100%;
+    min-width: 0;
+    padding: var(--space-2) var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    background: #ffffff;
+    text-align: center;
+}
+
+.todo-remind-duration-item input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
+.todo-remind-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-xs);
+    color: var(--color-text);
+    cursor: pointer;
+    user-select: none;
+}
+
+.todo-remind-checkbox input {
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    accent-color: var(--color-primary);
+}
+
+.todo-remind-units {
+    display: flex;
+    gap: 6px;
+}
+
+.todo-remind-unit-btn {
+    flex: 1;
+    padding: 6px 0;
+    background: var(--color-btn);
+    color: var(--color-text);
+    border: 1px solid transparent;
+    border-radius: 2px;
+    font-size: var(--text-xs);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.todo-remind-unit-btn:hover {
+    background: var(--color-btn-hover);
+}
+
+.todo-remind-unit-btn.active {
+    background: var(--color-btn-hover);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
 .todo-remind-actions {
     display: flex;
     justify-content: space-between;
@@ -3567,6 +3698,38 @@ body[data-theme="dark"] .todo-remind-datetime {
     border-color: #2f333a;
     color: #e6e8eb;
     color-scheme: dark;
+}
+
+body[data-theme="dark"] .todo-remind-select,
+body[data-theme="dark"] .todo-remind-input,
+body[data-theme="dark"] .todo-remind-duration-item input {
+    background: #1c1e22;
+    border-color: #2f333a;
+    color: #e6e8eb;
+    color-scheme: dark;
+}
+
+body[data-theme="dark"] .todo-remind-duration-item {
+    color: #a8adb5;
+}
+
+body[data-theme="dark"] .todo-remind-checkbox {
+    color: #e6e8eb;
+}
+
+body[data-theme="dark"] .todo-remind-unit-btn {
+    background: #2f333a;
+    color: #e6e8eb;
+}
+
+body[data-theme="dark"] .todo-remind-unit-btn:hover {
+    background: #3a3f47;
+}
+
+body[data-theme="dark"] .todo-remind-unit-btn.active {
+    background: #3a3f47;
+    border-color: var(--color-primary);
+    color: #e6e8eb;
 }
 
 /* ============ 暗色主题：待办清单 ============ */
